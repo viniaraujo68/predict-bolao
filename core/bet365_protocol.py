@@ -70,6 +70,7 @@ class ParsedEvent:
     event_id: str
     name: str
     markets: list[ParsedMarket] = field(default_factory=list)
+    raw_fields: dict = field(default_factory=dict)
 
     def home_away(self) -> tuple[str | None, str | None]:
         if " v " in self.name:
@@ -125,6 +126,9 @@ def parse_frame(frame: str) -> list[ParsedEvent]:
                     name=fields.get("NA", "?"),
                 )
             current_event = events[ev_id]
+            # Guarda os campos crus do EV (carregam o placar quando o jogo ja
+            # comecou/terminou); merge pra acumular updates parciais do mesmo EV.
+            current_event.raw_fields.update(fields)
             current_market = None
 
         elif rtype == "MA":
@@ -153,6 +157,29 @@ def parse_frame(frame: str) -> list[ParsedEvent]:
             )
 
     return list(events.values())
+
+
+# Placar de um evento (jogo em andamento/encerrado) nos campos crus do EV.
+# A bet365 publica o placar num destes campos, em formato "casa-fora" (ex "2-1");
+# a lista e best-effort e deve ser confirmada/ajustada com um dump ao vivo de um
+# jogo ja encerrado (rode `extract --dump-scores`). SS e o candidato mais provavel.
+SCORE_RE = re.compile(r"^(\d{1,2})-(\d{1,2})$")
+SCORE_FIELD_CANDIDATES = ("SS", "SC", "FS", "SL", "XP")
+
+
+def parse_event_score(fields: dict) -> tuple[int, int] | None:
+    """Extrai (gols_casa, gols_fora) dos campos crus de um EV, ou None.
+
+    Procura em SCORE_FIELD_CANDIDATES um valor no formato "casa-fora". So casa
+    por campo conhecido (nao varre todos) pra evitar falso positivo de algum
+    outro campo que por acaso tenha a forma "n-n".
+    """
+    for key in SCORE_FIELD_CANDIDATES:
+        v = (fields.get(key) or "").strip()
+        m = SCORE_RE.match(v)
+        if m:
+            return int(m.group(1)), int(m.group(2))
+    return None
 
 
 def _name_from_order(market: ParsedMarket, order: int | None) -> str:

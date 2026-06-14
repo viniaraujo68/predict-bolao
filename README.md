@@ -111,6 +111,15 @@ pontos que rendeu, mais um placar acumulado com o total da estratégia ao longo
 da Copa. No HTML o total recalcula ao vivo conforme você edita as regras de
 pontuação, e a célula do placar real fica marcada no heatmap.
 
+**Coleta automática de placares (bet365):** o `extract` também olha os frames
+WebSocket dos jogos que você abrir já encerrados (ex. pela aba de resultados da
+bet365) e grava o placar em `resultados.json` automaticamente — casando por
+`match_id` ou pelo nome dos times, e **sem sobrescrever** placares que você pôs
+à mão. O campo exato do placar no protocolo da bet365 ainda precisa de uma
+confirmação ao vivo: rode `python main.py extract --dump-scores` com um jogo
+encerrado aberto, abra `output/debug/event_fields.json`, ache o placar e ajuste
+`SCORE_FIELD_CANDIDATES` em `core/bet365_protocol.py` (hoje tenta `SS`/`SC`/…).
+
 **Flags úteis:**
 
 - `--debug-network` — salva todos os JSONs capturados em `output/debug/` (útil pra ajustar `core/parsers.py` se a estrutura da bet365 mudar).
