@@ -17,17 +17,6 @@ NAV_TIMEOUT_MS = 60_000
 RESPONSE_WAIT_MS = 30_000
 DEFAULT_WINDOW_HOURS = 48
 
-# Template de URL de uma partida por id (usado pelo comando `results` da captura
-# pra abrir um jogo ja encerrado direto pelo event id, sem depender da overview).
-# ATENCAO: a SPA nova da bet365 normalmente NAO renderiza deep-link de hash
-# (goto em #/.../E<id>/ costuma dar painel vazio) — o placar vem por WebSocket na
-# assinatura do evento. Este template e best-effort: confirme/ajuste numa corrida
-# ao vivo (veja se abrir o id assina o evento por WS e traz o placar). O {event_id}
-# e o match_id numerico guardado no store.
-BET365_EVENT_URL_TEMPLATE = BET365_BASE_URL + "#/AC/B1/C1/D1002/E{event_id}/F3/"
-# Quanto esperar (ms) por um placar chegar no estado WS depois de abrir o evento.
-RESULT_WAIT_MS = 15_000
-
 # Maximo de gols por time na matriz Dixon-Coles (inclusivo). 5 -> grid 6x6.
 # Truncar aqui nao muda as decisoes: a massa de probabilidade acima de 5 gols
 # por time e desprezivel (auditado em 12/06 contra forca bruta).

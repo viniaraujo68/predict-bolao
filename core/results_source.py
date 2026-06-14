@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import unicodedata
 import urllib.request
-from datetime import timedelta
+from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 
 from core.schemas import RawMatch
@@ -119,6 +119,21 @@ def fetch_scoreboard(date_yyyymmdd: str, timeout: float = 15.0) -> list[EspnEven
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         payload = json.loads(resp.read().decode("utf-8"))
     return parse_espn_events(payload)
+
+
+def unresolved_past_matches(
+    matches: list[RawMatch],
+    results: dict[str, tuple[int, int]],
+    now: datetime,
+) -> list[RawMatch]:
+    """Jogos ja comecados/encerrados (match_date < now) que ainda nao tem placar
+    coletado, ordenados por data. Sao os alvos de `buscar-resultados`."""
+    targets = [
+        m for m in matches
+        if m.match_date and m.match_date < now and m.match_id not in results
+    ]
+    targets.sort(key=lambda m: m.match_date)
+    return targets
 
 
 def dates_window(matches: list[RawMatch]) -> list[str]:

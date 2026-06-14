@@ -12,7 +12,7 @@ from rich.console import Console
 from rich.table import Table
 
 from core.backtest import run_backtest
-from core.ingestion import Bet365Scraper, _teams_from_event_name
+from core.ingestion import Bet365Scraper
 from core.math_engine import bolao_points
 from core.persistence import (
     load_results,
@@ -25,7 +25,12 @@ from core.persistence import (
 )
 from core.processor import enrich, to_dataframe
 from core.report import write_html
-from core.results_source import dates_window, fetch_scoreboard, match_event
+from core.results_source import (
+    dates_window,
+    fetch_scoreboard,
+    match_event,
+    unresolved_past_matches,
+)
 from core.schemas import RawMatch, RichMatch
 
 app = typer.Typer(help="Motor de palpites para bolão da Copa do Mundo (bet365.bet.br).")
@@ -52,15 +57,12 @@ def _generate_reports(matches: list[RawMatch], ts: datetime) -> tuple:
 @app.command()
 def extract(
     debug_network: bool = typer.Option(False, "--debug-network", help="Salva todos os JSONs capturados em output/debug/."),
-    dump_scores: bool = typer.Option(False, "--dump-scores", help="Dumpa os campos crus de EV em output/debug/event_fields.json (pra confirmar o campo do placar)."),
 ) -> None:
     """Captura odds da bet365, salva snapshot + atualiza o store e gera palpites.
 
-    Placares detectados nos frames WS (jogos abertos que ja comecaram/terminaram,
-    ex. pela aba de resultados da bet365) sao gravados automaticamente em
-    resultados.json — sem sobrescrever placares ja inputados a mao.
+    (Placares de jogos encerrados não vêm daqui — use `buscar-resultados`.)
     """
-    scraper = Bet365Scraper(debug=debug_network, dump_scores=dump_scores)
+    scraper = Bet365Scraper(debug=debug_network)
     matches = scraper.capture_round()
 
     if not matches:
@@ -77,12 +79,6 @@ def extract(
         f"[green]Store atualizado: {store_path} "
         f"({novas} novas, {atualizadas} atualizadas)[/green]"
     )
-
-    # Placares detectados nos frames WS -> resultados.json (sem sobrescrever
-    # o que ja foi inputado a mao).
-    aplicados = _apply_scores(load_store(), scraper.collected_scores())
-    for m, h, a in aplicados:
-        console.print(f"[green]Placar auto: {m.home_team} {h} x {a} {m.away_team}[/green]")
 
     # Relatorios sempre do store COMPLETO (nao so do snapshot recem-capturado).
     full = load_store()
@@ -224,47 +220,6 @@ def _parse_score(placar: str) -> tuple[int, int] | None:
     return int(m.group(1)), int(m.group(2))
 
 
-def _match_for_score(
-    matches: list[RawMatch], event_id: str, name: str,
-) -> RawMatch | None:
-    """Casa um placar coletado (event_id + nome 'Casa v Fora') a uma partida do
-    store: primeiro por match_id, depois por nome dos dois times (sem acento)."""
-    by_id = {m.match_id: m for m in matches}
-    if event_id in by_id:
-        return by_id[event_id]
-    home, away = _teams_from_event_name(name)
-    if not (home and away):
-        return None
-    qh, qa = _normalize(home), _normalize(away)
-    cands = [
-        m for m in matches
-        if (qh in _normalize(m.home_team) or _normalize(m.home_team) in qh)
-        and (qa in _normalize(m.away_team) or _normalize(m.away_team) in qa)
-    ]
-    return cands[0] if len(cands) == 1 else None
-
-
-def _apply_scores(
-    matches: list[RawMatch],
-    scores: list[tuple[str, str, tuple[int, int]]],
-) -> list[tuple[RawMatch, int, int]]:
-    """Grava em resultados.json os placares coletados, casando-os ao store.
-
-    NAO sobrescreve placares ja existentes (manuais ou aplicados antes), pra um
-    parse equivocado nunca apagar um resultado bom. Retorna os aplicados.
-    """
-    existing = load_results()
-    applied: list[tuple[RawMatch, int, int]] = []
-    for event_id, name, (h, a) in scores:
-        m = _match_for_score(matches, event_id, name)
-        if m is None or m.match_id in existing:
-            continue
-        set_result(m.match_id, h, a)
-        existing[m.match_id] = (h, a)
-        applied.append((m, h, a))
-    return applied
-
-
 def _find_matches(matches: list[RawMatch], busca: str) -> list[RawMatch]:
     """Casa por match_id exato ou por substring (sem acento) no nome dos times."""
     exact = [m for m in matches if m.match_id == busca]
@@ -326,8 +281,6 @@ def buscar_resultados() -> None:
     """Busca na ESPN (por data) o placar final dos jogos já encerrados sem placar
     e grava em resultados.json — casa por nome dos times, sem precisar de id nem
     do browser. Não sobrescreve placares já existentes."""
-    from core.ingestion import unresolved_past_matches
-
     store = load_store()
     if not store:
         console.print("[red]Store vazio (output/odds_atuais.json). Rode 'python main.py extract' antes.[/red]")
