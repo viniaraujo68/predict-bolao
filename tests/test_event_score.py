@@ -3,13 +3,16 @@ WS e casamento do placar coletado com as partidas do store."""
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from core.bet365_protocol import parse_event_score, parse_frame
+from core.ingestion import unresolved_past_matches
 from core.schemas import RawMatch
 from main import _apply_scores, _match_for_score
 
 
-def _match(match_id: str, home: str, away: str) -> RawMatch:
-    return RawMatch(match_id=match_id, home_team=home, away_team=away)
+def _match(match_id: str, home: str, away: str, when: datetime | None = None) -> RawMatch:
+    return RawMatch(match_id=match_id, home_team=home, away_team=away, match_date=when)
 
 
 def test_parse_event_score_campo_conhecido():
@@ -44,6 +47,20 @@ def test_match_for_score_por_nome_quando_id_diverge():
     assert m is not None and m.match_id == "200"
 
 
+def test_unresolved_past_matches_filtra_e_ordena():
+    now = datetime(2026, 6, 14, 12, 0)
+    ms = [
+        _match("a", "X", "Y", datetime(2026, 6, 13, 16, 0)),  # passado, sem placar -> alvo
+        _match("b", "Z", "W", datetime(2026, 6, 12, 16, 0)),  # passado, sem placar -> alvo (mais antigo)
+        _match("c", "P", "Q", datetime(2026, 6, 20, 16, 0)),  # futuro -> fora
+        _match("d", "R", "S", datetime(2026, 6, 11, 16, 0)),  # passado mas JA tem placar -> fora
+        _match("e", "T", "U", None),                          # sem data -> fora
+    ]
+    results = {"d": (1, 0)}
+    out = unresolved_past_matches(ms, results, now)
+    assert [m.match_id for m in out] == ["b", "a"]            # so passados sem placar, por data
+
+
 def test_apply_scores_nao_sobrescreve_existente(tmp_path, monkeypatch):
     import core.persistence as persistence
 
@@ -71,5 +88,6 @@ if __name__ == "__main__":
     test_parse_frame_guarda_raw_fields_e_placar()
     test_match_for_score_por_id()
     test_match_for_score_por_nome_quando_id_diverge()
-    print("OK: testes de placar (parsing + casamento) passaram"
+    test_unresolved_past_matches_filtra_e_ordena()
+    print("OK: testes de placar (parsing + casamento + alvos do results) passaram"
           " — o teste de nao-sobrescrita roda via pytest (usa fixtures).")
