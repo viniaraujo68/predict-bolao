@@ -48,3 +48,10 @@ class ConsolidatedPrediction(BaseModel):
 class RichMatch(BaseModel):
     raw: RawMatch
     prediction: ConsolidatedPrediction
+    # Placar real (inputado manualmente). Preenchido quando o jogo ja foi resolvido.
+    actual_home: int | None = None
+    actual_away: int | None = None
+
+    @property
+    def is_resolved(self) -> bool:
+        return self.actual_home is not None and self.actual_away is not None

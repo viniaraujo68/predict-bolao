@@ -19,6 +19,9 @@ from core.schemas import RawMatch
 CAPTURAS_DIR = OUTPUT_DIR / "capturas"
 RELATORIOS_DIR = OUTPUT_DIR / "relatorios"
 STORE_PATH = OUTPUT_DIR / "odds_atuais.json"
+# Placares reais inputados manualmente, separados das odds: uma nova captura
+# sobrescreve o store de odds, mas nunca apaga um resultado ja registrado.
+RESULTS_PATH = OUTPUT_DIR / "resultados.json"
 
 TS_FORMAT = "%Y-%m-%d_%Hh%M"
 
@@ -92,6 +95,50 @@ def load_store() -> list[RawMatch]:
     except Exception:
         return []
     return [RawMatch.model_validate(m) for m in payload.get("matches", [])]
+
+
+def load_results() -> dict[str, tuple[int, int]]:
+    """Carrega os placares reais inputados (resultados.json). Vazio se nao existir.
+
+    Retorna {match_id: (gols_casa, gols_fora)}.
+    """
+    if not RESULTS_PATH.exists():
+        return {}
+    try:
+        payload = json.loads(RESULTS_PATH.read_text())
+    except Exception:
+        return {}
+    out: dict[str, tuple[int, int]] = {}
+    for mid, v in payload.get("results", {}).items():
+        try:
+            out[mid] = (int(v["home"]), int(v["away"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+def save_results(results: dict[str, tuple[int, int]]) -> Path:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "saved_at": datetime.now().isoformat(),
+        "results": {mid: {"home": h, "away": a} for mid, (h, a) in results.items()},
+    }
+    RESULTS_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+    return RESULTS_PATH
+
+
+def set_result(match_id: str, home: int, away: int) -> Path:
+    """Registra/atualiza o placar real de uma partida."""
+    results = load_results()
+    results[match_id] = (home, away)
+    return save_results(results)
+
+
+def remove_result(match_id: str) -> Path:
+    """Apaga o placar real de uma partida (se existir)."""
+    results = load_results()
+    results.pop(match_id, None)
+    return save_results(results)
 
 
 def load_snapshot(path: Path | str) -> tuple[list[RawMatch], datetime | None]:

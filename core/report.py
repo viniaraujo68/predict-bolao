@@ -152,6 +152,28 @@ table.heat td.sel-cell {{ outline: 3px dashed var(--muted); outline-offset: -1px
 .whatif .worse {{ color: var(--away); font-weight: 600; }}
 .lams {{ margin-top: 12px; font-size: 12px; color: var(--muted); }}
 .no-data {{ color: var(--muted); font-style: italic; margin: 18px 0; }}
+.scoreboard {{
+  max-width: 1480px; margin: 0 auto 22px; border-radius: 14px; border: 1px solid var(--line);
+  background: var(--card); box-shadow: var(--shadow); padding: 14px 18px;
+  display: flex; flex-wrap: wrap; gap: 10px 28px; align-items: center;
+}}
+.scoreboard[hidden] {{ display: none; }}
+.sb-stat {{ display: flex; flex-direction: column; line-height: 1.25; }}
+.sb-stat .v {{ font-size: 21px; font-weight: 700; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }}
+.sb-stat .v.accent {{ color: var(--accent); }}
+.sb-stat .k {{ font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }}
+.result {{
+  margin-top: 12px; padding: 8px 12px; border-radius: 8px; background: var(--soft);
+  border-left: 3px solid var(--muted); font-size: 13px; line-height: 1.5;
+}}
+.result[hidden] {{ display: none; }}
+.result.hit {{ border-left-color: var(--accent); }}
+.result.miss {{ border-left-color: var(--away); }}
+.result .score {{ font-weight: 700; }}
+.result .pts {{ font-weight: 700; }}
+.result.hit .pts {{ color: var(--accent); }}
+.result.miss .pts {{ color: var(--away); }}
+table.heat td.actual-cell {{ box-shadow: inset 0 0 0 3px var(--home); font-weight: 700; }}
 footer {{ max-width: 1480px; margin: 26px auto 0; color: var(--muted); font-size: 12px; }}
 """
 
@@ -289,8 +311,56 @@ function updateWhatif(card, m, E, pts) {
   if (td && !td.classList.contains('pick-cell')) td.classList.add('sel-cell');
 }
 
+// Maior pontuacao possivel pra um resultado (palpite com hindsight = placar exato).
+function bestPossible(a, b, pts) {
+  let best = 0;
+  for (let i = 0; i < 7; i++) for (let j = 0; j < 7; j++)
+    best = Math.max(best, pointsFor(i, j, a, b, pts));
+  return best;
+}
+
+function updateResultCard(card, m, pts) {
+  const panel = card.querySelector('.result');
+  card.querySelectorAll('td.actual-cell').forEach(td => td.classList.remove('actual-cell'));
+  if (!m.result || m.pick == null) { panel.hidden = true; return null; }
+  const [a, b] = m.result;
+  const [pi, pj] = m.pick.split('-').map(Number);
+  const got = pointsFor(pi, pj, a, b, pts);
+  const max = bestPossible(a, b, pts);
+  const correct = sgn(pi - pj) === sgn(a - b);
+  const exact = pi === a && pj === b;
+  const td = card.querySelector(`td[data-i="${a}"][data-j="${b}"]`);
+  if (td) td.classList.add('actual-cell');
+  const verdict = exact ? 'placar exato ✓' : correct ? 'acertou o resultado' : 'errou o resultado';
+  panel.className = 'result ' + (got > 0 ? 'hit' : 'miss');
+  panel.innerHTML =
+    `Resultado real <span class="score">${a}-${b}</span> · palpite <b>${m.pick}</b> → ` +
+    `<span class="pts">${got} pts</span> <span style="color:var(--muted)">de ${max} possíveis · ${verdict}</span>`;
+  panel.hidden = false;
+  return { got, max, correct, exact };
+}
+
+function updateScoreboard(agg) {
+  const sb = document.getElementById('scoreboard');
+  if (!sb) return;
+  if (agg.n === 0) { sb.hidden = true; sb.innerHTML = ''; return; }
+  const avg = agg.got / agg.n;
+  const effic = agg.max > 0 ? agg.got / agg.max * 100 : 0;
+  const stat = (v, k, accent) =>
+    `<div class="sb-stat"><span class="v${accent ? ' accent' : ''}">${v}</span><span class="k">${k}</span></div>`;
+  sb.innerHTML =
+    stat(agg.got, 'pontos da estratégia', true) +
+    stat(`${agg.n}`, 'jogos resolvidos') +
+    stat(avg.toFixed(2), 'média por jogo') +
+    stat(`${agg.correct}/${agg.n}`, 'resultados certos') +
+    stat(`${agg.exact}/${agg.n}`, 'placares exatos') +
+    stat(`${agg.got}/${agg.max}`, `aproveitamento ${effic.toFixed(0)}%`);
+  sb.hidden = false;
+}
+
 function refreshAll() {
   const pts = readPts();
+  const agg = { n: 0, got: 0, max: 0, correct: 0, exact: 0 };
   document.querySelectorAll('.card[data-id]').forEach(card => {
     const m = byId[card.dataset.id];
     if (!m || !m.matrix) return;
@@ -306,7 +376,10 @@ function refreshAll() {
     recolorHeat(card, m, E);
     rebuildTop(card, m, E, m.pick);
     updateWhatif(card, m, E, pts);
+    const res = updateResultCard(card, m, pts);
+    if (res) { agg.n++; agg.got += res.got; agg.max += res.max; agg.correct += res.correct ? 1 : 0; agg.exact += res.exact ? 1 : 0; }
   });
+  updateScoreboard(agg);
 }
 
 function applyDayFilter() {
@@ -490,6 +563,7 @@ def _card(r: RichMatch, newest_capture: datetime | None = None) -> str:
     return (
         f'<article class="card"{attrs}>{head}{bar}'
         f'<div class="body-flex">{_heatmap(r)}{_top_scores(r)}</div>'
+        '<div class="result" hidden></div>'
         '<div class="whatif" hidden></div>'
         f"{lams}{odds_line}</article>"
     )
@@ -506,6 +580,7 @@ def _embedded_json(rich: list[RichMatch], title: str) -> str:
             "day": r.raw.match_date.strftime("%d/%m") if r.raw.match_date else "",
             "pick": p.score,
             "matrix": [[round(v, 6) for v in row] for row in p.matrix] if p.matrix else None,
+            "result": [r.actual_home, r.actual_away] if r.is_resolved else None,
         })
     payload = json.dumps(
         {"title": title, "blowoutGoals": BOLAO_BLOWOUT_GOALS, "matches": matches},
@@ -555,6 +630,7 @@ def write_html(rich: list[RichMatch], ts: datetime | None = None) -> Path:
 <h1>Palpites — {title}</h1>
 <p>{len(rich)} partidas · Dixon-Coles calibrado nas odds 1X2 + over/under 2.5 da bet365</p>
 </header>
+<div class="scoreboard" id="scoreboard" hidden></div>
 <div class="toolbar">
 <span><span class="tb-label">Dia:</span>{chips}</span>
 <span><span class="tb-label">Ver:</span><span class="seg">
