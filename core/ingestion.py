@@ -164,13 +164,19 @@ class Bet365Scraper:
                 continue
             state = self._events_state.setdefault(
                 ev.event_id,
-                {"name": ev.name, "markets": {}, "last_seen": time.time(), "score": None, "ev_fields": {}},
+                {"name": ev.name, "markets": {}, "last_seen": time.time(),
+                 "score": None, "ev_fields": {}, "fi": None},
             )
             state["last_seen"] = time.time()
             if ev.name and ev.name != "?":
                 state["name"] = ev.name
             if ev.raw_fields:
                 state.setdefault("ev_fields", {}).update(ev.raw_fields)
+                # FI = id numerico do evento (casa com o match_id do store; o
+                # ID do WS vem com sufixo tipo ...C1A_33_0).
+                fi = ev.raw_fields.get("FI")
+                if fi:
+                    state["fi"] = fi
             if score is not None:
                 state["score"] = score
             for market in ev.markets:
@@ -289,7 +295,9 @@ class Bet365Scraper:
         for ev_id, st in self._events_state.items():
             sc = st.get("score")
             if sc is not None:
-                out.append((ev_id, st.get("name") or "", sc))
+                # Reporta o FI (id numerico, casa com o store) quando houver;
+                # senao a chave do estado (ID do WS, com sufixo).
+                out.append((st.get("fi") or ev_id, st.get("name") or "", sc))
         return out
 
     def _collect_results(self, page, limit: int | None = None) -> None:
@@ -337,10 +345,14 @@ class Bet365Scraper:
         return self._open_event_by_id(page, m, wait_ms=RESULT_WAIT_MS)
 
     def _score_in_state_for(self, m: RawMatch) -> tuple[int, int] | None:
-        """Procura um placar ja no estado WS, por event id e por nome dos times."""
+        """Procura um placar ja no estado WS: pela chave do estado, pelo FI (id
+        numerico, que casa com o match_id do store) e por nome dos times."""
         st = self._events_state.get(m.match_id)
         if st and st.get("score"):
             return st["score"]
+        for state in self._events_state.values():
+            if state.get("fi") == m.match_id and state.get("score"):
+                return state["score"]
         _, st2 = self._ws_state_by_teams(m.home_team, m.away_team)
         if st2 and st2.get("score"):
             return st2["score"]

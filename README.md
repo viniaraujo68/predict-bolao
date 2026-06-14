@@ -120,16 +120,21 @@ já temos os ids. `results N` limita aos N mais antigos. Os placares vão pra
 disso, qualquer jogo encerrado que você abrir manualmente também tem o placar
 coletado dos frames WebSocket.
 
-Dois pontos dependem de uma confirmação ao vivo (a SPA nova da bet365 é chata):
+Achados de uma corrida ao vivo (14/06/2026, sem login):
 
-1. **Campo do placar.** Rode `python main.py extract --dump-scores` com um jogo
-   encerrado aberto, abra `output/debug/event_fields.json`, ache o placar e
-   ajuste `SCORE_FIELD_CANDIDATES` em `core/bet365_protocol.py` (hoje tenta
-   `SS`/`SC`/…).
-2. **Abrir o evento pelo id.** A SPA pode não renderizar deep-link de hash; o
-   template `BET365_EVENT_URL_TEMPLATE` (em `config.py`) e o método
-   `_open_event_by_id` ficam isolados pra ajustar a navegação se o `results`
-   não trouxer os placares na primeira corrida.
+1. **Campo do placar: `SS`** (formato `casa-fora`, ex. `0-1`) — validado em 156
+   eventos inplay. O id numérico do evento (que casa com o `match_id` do store)
+   é o campo `FI` (o `ID` do WS vem com sufixo tipo `…C1A_33_0`). Já travado em
+   `SCORE_FIELD_CANDIDATES` / matching por `FI`.
+2. **Abrir evento por id-URL NÃO funciona.** Confirmado: `goto` no hash
+   `#/…/E<id>/` não renderiza nem assina o evento; o feed WS inplay só traz
+   jogos **ao vivo no momento**, não jogos da Copa encerrados há dias. Ou seja,
+   a coleta automática via bet365 funciona pra jogos **ao vivo / recém-encerrados**
+   durante a sessão de captura (abrindo o card, o WS empurra o `SS`); pra placares
+   de dias atrás a bet365 não entrega por id e o caminho é o comando manual
+   `resultado` (ou uma fonte de resultados por data). O template
+   `BET365_EVENT_URL_TEMPLATE` e `_open_event_by_id` seguem isolados em
+   `config.py`/`core/ingestion.py` caso uma rota nova seja descoberta.
 
 **Flags úteis:**
 

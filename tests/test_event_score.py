@@ -15,15 +15,16 @@ def _match(match_id: str, home: str, away: str, when: datetime | None = None) ->
     return RawMatch(match_id=match_id, home_team=home, away_team=away, match_date=when)
 
 
-def test_parse_event_score_campo_conhecido():
+def test_parse_event_score_campo_ss():
+    # Validado ao vivo: o placar vem em SS (casa-fora).
     assert parse_event_score({"SS": "2-1"}) == (2, 1)
-    assert parse_event_score({"SC": "0-3"}) == (0, 3)
+    assert parse_event_score({"SS": "0-3"}) == (0, 3)
 
 
 def test_parse_event_score_sem_placar():
     assert parse_event_score({"NA": "Brasil v Marrocos", "TT": "1"}) is None
-    # campo desconhecido com forma n-n NAO casa (evita falso positivo)
-    assert parse_event_score({"ZZ": "2-1"}) is None
+    # campos que NAO sao o placar (FS e flag de estagio, ZZ desconhecido) -> None
+    assert parse_event_score({"FS": "1", "ZZ": "2-1"}) is None
 
 
 def test_parse_frame_guarda_raw_fields_e_placar():
@@ -83,7 +84,7 @@ def test_apply_scores_nao_sobrescreve_existente(tmp_path, monkeypatch):
 
 
 if __name__ == "__main__":
-    test_parse_event_score_campo_conhecido()
+    test_parse_event_score_campo_ss()
     test_parse_event_score_sem_placar()
     test_parse_frame_guarda_raw_fields_e_placar()
     test_match_for_score_por_id()
