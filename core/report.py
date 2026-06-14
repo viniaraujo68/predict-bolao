@@ -235,6 +235,14 @@ function bestOf(E) {
   return best;
 }
 
+// Placar mais provavel (argmax da matriz de probabilidade).
+function bestProb(M) {
+  let best = { i: 0, j: 0, p: -1 };
+  for (let i = 0; i < M.length; i++) for (let j = 0; j < M.length; j++)
+    if (M[i][j] > best.p) best = { i, j, p: M[i][j] };
+  return best;
+}
+
 function recolorHeat(card, m, E) {
   const vals = VIEW === 'ep' ? E : m.matrix;
   const vmax = Math.max(...vals.map(r => Math.max(...r)));
@@ -349,8 +357,9 @@ function updateScoreboard(agg) {
   const effic = agg.max > 0 ? agg.got / agg.max * 100 : 0;
   const stat = (v, k, accent) =>
     `<div class="sb-stat"><span class="v${accent ? ' accent' : ''}">${v}</span><span class="k">${k}</span></div>`;
+  const label = VIEW === 'prob' ? 'pontos (placar provável)' : 'pontos (maior E[pts])';
   sb.innerHTML =
-    stat(agg.got, 'pontos da estratégia', true) +
+    stat(agg.got, label, true) +
     stat(`${agg.n}`, 'jogos resolvidos') +
     stat(avg.toFixed(2), 'média por jogo') +
     stat(`${agg.correct}/${agg.n}`, 'resultados certos') +
@@ -366,11 +375,13 @@ function refreshAll() {
     const m = byId[card.dataset.id];
     if (!m || !m.matrix) return;
     const E = epMatrix(m.matrix, pts);
-    const best = bestOf(E);
+    // Em "Pontos esperados" o palpite maximiza E[pontos]; em "Probabilidade"
+    // o palpite e o placar mais provavel — e o "pontos da estrategia" segue isso.
+    const best = VIEW === 'prob' ? bestProb(m.matrix) : bestOf(E);
     m.pick = `${best.i}-${best.j}`;
     card.querySelector('.pick-score').textContent = m.pick;
     card.querySelector('.pick-prob').textContent = pct(m.matrix[best.i][best.j]) + ' do placar';
-    card.querySelector('.pick-ep').textContent = fmt(best.ep) + ' pts esperados';
+    card.querySelector('.pick-ep').textContent = fmt(E[best.i][best.j]) + ' pts esperados';
     card.querySelectorAll('td.pick-cell').forEach(td => td.classList.remove('pick-cell'));
     const td = card.querySelector(`td[data-i="${best.i}"][data-j="${best.j}"]`);
     if (td) td.classList.add('pick-cell');
