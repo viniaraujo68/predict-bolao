@@ -3,17 +3,20 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from core.results_source import (
     EspnEvent,
     _same_team,
     match_event,
     parse_espn_events,
+    unresolved_past_matches,
 )
 from core.schemas import RawMatch
 
 
-def _m(home: str, away: str) -> RawMatch:
-    return RawMatch(match_id="x", home_team=home, away_team=away)
+def _m(home: str, away: str, mid: str = "x", when: datetime | None = None) -> RawMatch:
+    return RawMatch(match_id=mid, home_team=home, away_team=away, match_date=when)
 
 
 def _ev(home, hs, away, as_, completed=True) -> EspnEvent:
@@ -62,6 +65,19 @@ def test_match_event_orienta_pela_identidade():
     assert match_event(_m("Alemanha", "Curaçao"), events) is None
 
 
+def test_unresolved_past_matches_filtra_e_ordena():
+    now = datetime(2026, 6, 14, 12, 0)
+    ms = [
+        _m("X", "Y", "a", datetime(2026, 6, 13, 16, 0)),  # passado, sem placar -> alvo
+        _m("Z", "W", "b", datetime(2026, 6, 12, 16, 0)),  # passado, sem placar -> alvo (mais antigo)
+        _m("P", "Q", "c", datetime(2026, 6, 20, 16, 0)),  # futuro -> fora
+        _m("R", "S", "d", datetime(2026, 6, 11, 16, 0)),  # passado mas JA tem placar -> fora
+        _m("T", "U", "e", None),                          # sem data -> fora
+    ]
+    out = unresolved_past_matches(ms, {"d": (1, 0)}, now)
+    assert [m.match_id for m in out] == ["b", "a"]
+
+
 def test_parse_espn_events_estrutura():
     payload = {
         "events": [
@@ -83,5 +99,6 @@ def test_parse_espn_events_estrutura():
 if __name__ == "__main__":
     test_same_team_apelidos_e_normalizacao()
     test_match_event_orienta_pela_identidade()
+    test_unresolved_past_matches_filtra_e_ordena()
     test_parse_espn_events_estrutura()
-    print("OK: testes do buscador ESPN (parse + casamento + orientação) passaram")
+    print("OK: testes do buscador ESPN (parse + casamento + orientação + alvos) passaram")

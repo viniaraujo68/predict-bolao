@@ -125,30 +125,10 @@ precisar de id nem do browser**, e orientando o placar pela identidade dos times
 já existentes. Diferenças de grafia store↔ESPN (Qatar/Catar, USA/Estados Unidos,
 Tchéquia/República Tcheca, …) estão no mapa de apelidos em `core/results_source.py`.
 
-**Coleta automática de placares (bet365):** durante o `extract`, no prompt de
-captura há o comando **`results`** (igual ao `auto`, mas pra resultados): ele
-pega do store os jogos **já encerrados (data passada) e ainda sem placar** e
-busca cada um **pelo `match_id`** — você não precisa estar em página nenhuma,
-já temos os ids. `results N` limita aos N mais antigos. Os placares vão pra
-`resultados.json` na hora, **sem sobrescrever** o que você pôs à mão. Além
-disso, qualquer jogo encerrado que você abrir manualmente também tem o placar
-coletado dos frames WebSocket.
-
-Achados de uma corrida ao vivo (14/06/2026, sem login):
-
-1. **Campo do placar: `SS`** (formato `casa-fora`, ex. `0-1`) — validado em 156
-   eventos inplay. O id numérico do evento (que casa com o `match_id` do store)
-   é o campo `FI` (o `ID` do WS vem com sufixo tipo `…C1A_33_0`). Já travado em
-   `SCORE_FIELD_CANDIDATES` / matching por `FI`.
-2. **Abrir evento por id-URL NÃO funciona.** Confirmado: `goto` no hash
-   `#/…/E<id>/` não renderiza nem assina o evento; o feed WS inplay só traz
-   jogos **ao vivo no momento**, não jogos da Copa encerrados há dias. Ou seja,
-   a coleta automática via bet365 funciona pra jogos **ao vivo / recém-encerrados**
-   durante a sessão de captura (abrindo o card, o WS empurra o `SS`); pra placares
-   de dias atrás a bet365 não entrega por id e o caminho é o comando manual
-   `resultado` (ou uma fonte de resultados por data). O template
-   `BET365_EVENT_URL_TEMPLATE` e `_open_event_by_id` seguem isolados em
-   `config.py`/`core/ingestion.py` caso uma rota nova seja descoberta.
+> O `extract` (bet365) cuida só das **odds** — não coleta placar. Para resultados,
+> use `buscar-resultados` (automático) ou `resultado` (manual). Tentamos puxar o
+> placar pelo bet365 e ficou comprovado que a SPA não serve jogos encerrados por
+> id; por isso a fonte de resultados é a ESPN.
 
 **Flags úteis:**
 
@@ -166,6 +146,7 @@ predict-bolao/
 │   ├── parsers.py        # Heurísticas pra extrair mercados de JSONs
 │   ├── ingestion.py      # Patchright + captura de responses
 │   ├── persistence.py    # Snapshots imutáveis + store odds_atuais.json + resultados.json
+│   ├── results_source.py # Busca placares finais na ESPN (por data) e casa por nome
 │   ├── processor.py      # Pipeline Polars (DataFrame da tabela do terminal)
 │   └── report.py         # Relatório HTML interativo (heatmap + simulador de palpite)
 ├── browser_data/         # Perfil persistente do Patchright (gitignored)

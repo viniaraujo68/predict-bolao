@@ -27,19 +27,16 @@ from patchright.sync_api import Response, WebSocket, sync_playwright
 
 from config import (
     BET365_BASE_URL,
-    BET365_EVENT_URL_TEMPLATE,
     BET365_WORLD_CUP_KEYWORDS,
     BROWSER_CHANNEL,
     BROWSER_DATA_DIR,
     DEBUG_DIR,
     NAV_TIMEOUT_MS,
-    RESULT_WAIT_MS,
 )
 from core.bet365_protocol import (
     ParsedEvent,
     ParsedMarket,
     classify_market_kind,
-    parse_event_score,
     parse_frame,
 )
 from core.dom_parser import extract_match_from_html
@@ -64,9 +61,8 @@ class CapturedPayload:
 class Bet365Scraper:
     """Encapsula um contexto Patchright persistente apontado pra bet365.bet.br."""
 
-    def __init__(self, debug: bool = False, dump_scores: bool = False) -> None:
+    def __init__(self, debug: bool = False) -> None:
         self.debug = debug
-        self.dump_scores = dump_scores
         self._captured: list[CapturedPayload] = []
         self._ws_frames: list[str] = []
         self._events_state: dict[str, dict] = {}
@@ -157,28 +153,14 @@ class Bet365Scraper:
         except Exception:
             return
         for ev in events:
-            # Jogos encerrados podem chegar so com o placar (sem mercados): ainda
-            # assim atualizamos o estado pra coletar o resultado.
-            score = parse_event_score(ev.raw_fields)
-            if not ev.markets and score is None and not ev.raw_fields:
+            if not ev.markets:
                 continue
             state = self._events_state.setdefault(
-                ev.event_id,
-                {"name": ev.name, "markets": {}, "last_seen": time.time(),
-                 "score": None, "ev_fields": {}, "fi": None},
+                ev.event_id, {"name": ev.name, "markets": {}, "last_seen": time.time()}
             )
             state["last_seen"] = time.time()
             if ev.name and ev.name != "?":
                 state["name"] = ev.name
-            if ev.raw_fields:
-                state.setdefault("ev_fields", {}).update(ev.raw_fields)
-                # FI = id numerico do evento (casa com o match_id do store; o
-                # ID do WS vem com sufixo tipo ...C1A_33_0).
-                fi = ev.raw_fields.get("FI")
-                if fi:
-                    state["fi"] = fi
-            if score is not None:
-                state["score"] = score
             for market in ev.markets:
                 kind = classify_market_kind(market)
                 if kind is None:
@@ -237,12 +219,10 @@ class Bet365Scraper:
             print("\n[captura] Browser aberto. Faca login na bet365 antes de capturar")
             print("          (varios jogos so servem odds com a sessao logada).")
             print("[captura] Comandos:")
-            print("          ENTER     - captura a partida aberta na pagina atual")
-            print("          auto      - varre os cards da overview e captura todos")
-            print("          auto N    - igual, mas limita aos N primeiros cards")
-            print("          results   - coleta o placar dos jogos ja encerrados (por id, do store)")
-            print("          results N - igual, mas limita aos N jogos mais antigos")
-            print("          fim       - termina e gera o relatorio")
+            print("          ENTER  - captura a partida aberta na pagina atual")
+            print("          auto   - varre os cards da overview e captura todos")
+            print("          auto N - igual, mas limita aos N primeiros cards")
+            print("          fim    - termina e gera o relatorio")
             print("[captura] Cada partida leva ~10s (abrir o card + ler odds do DOM/WS).\n")
             if on_ready:
                 on_ready()
@@ -255,11 +235,6 @@ class Bet365Scraper:
                         parts = cmd.split()
                         limit = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
                         self._auto_capture_round(page, limit=limit)
-                        continue
-                    if cmd.split()[:1] and cmd.split()[0] in ("results", "result", "res"):
-                        parts = cmd.split()
-                        limit = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
-                        self._collect_results(page, limit=limit)
                         continue
                     self._capture_current(page)
             except (EOFError, KeyboardInterrupt):
@@ -274,138 +249,11 @@ class Bet365Scraper:
             f"\n[captura] {len(self._dom_matches)} partidas via DOM; "
             f"{len(self._ws_frames)} WS frames; {len(self._captured)} HTTP responses."
         )
-        scores = self.collected_scores()
-        if scores:
-            print(f"[captura] {len(scores)} placares detectados nos frames WS.")
-        if self.dump_scores:
-            self._dump_event_fields()
         return self._build_matches()
 
     def _build_matches(self) -> list[RawMatch]:
         """Retorna as partidas capturadas (DOM + fallback por WebSocket)."""
         return list(self._dom_matches)
-
-    def collected_scores(self) -> list[tuple[str, str, tuple[int, int]]]:
-        """Placares detectados nos frames WS durante a captura.
-
-        Retorna [(event_id, nome_do_evento, (gols_casa, gols_fora))]. Inclui
-        jogos em andamento — quem decide se ja terminou e o chamador (via data).
-        """
-        out: list[tuple[str, str, tuple[int, int]]] = []
-        for ev_id, st in self._events_state.items():
-            sc = st.get("score")
-            if sc is not None:
-                # Reporta o FI (id numerico, casa com o store) quando houver;
-                # senao a chave do estado (ID do WS, com sufixo).
-                out.append((st.get("fi") or ev_id, st.get("name") or "", sc))
-        return out
-
-    def _collect_results(self, page, limit: int | None = None) -> None:
-        """Coleta o placar dos jogos ja encerrados, indo pelo id (do store).
-
-        Nao precisa estar em pagina nenhuma: pega do store os jogos com data
-        passada e sem placar ainda, abre cada um pelo event id e harvesta o
-        placar do estado WS. Grava em resultados.json na hora (sem sobrescrever),
-        e o fim do extract reaplica de forma idempotente.
-        """
-        from core.persistence import load_results, load_store, set_result
-
-        existing = load_results()
-        targets = unresolved_past_matches(load_store(), existing, datetime.now())
-        if limit:
-            targets = targets[:limit]
-
-        if not targets:
-            print("  ~ results: nenhum jogo encerrado pendente de placar no store.")
-            return
-
-        print(f"  ~ results: {len(targets)} jogos encerrados sem placar; buscando por id.")
-        got = 0
-        for idx, m in enumerate(targets, 1):
-            print(f"    [{idx}/{len(targets)}] {m.home_team} v {m.away_team} (id {m.match_id})")
-            score = self._score_for_match(page, m)
-            if score is not None:
-                set_result(m.match_id, score[0], score[1])
-                existing[m.match_id] = score
-                got += 1
-                print(f"      + placar {score[0]}-{score[1]} salvo")
-            else:
-                print(f"      ! placar nao veio pelo id {m.match_id} "
-                      f"(deep-link de hash pode nao renderizar; rode --dump-scores)")
-        print(f"  ~ results: {got}/{len(targets)} placares coletados.")
-
-    def _score_for_match(
-        self, page, m: RawMatch,
-    ) -> tuple[int, int] | None:
-        """Placar de uma partida: usa o estado WS ja capturado se houver, senao
-        abre o evento pelo id e espera o placar chegar por WS."""
-        sc = self._score_in_state_for(m)
-        if sc is not None:
-            return sc
-        return self._open_event_by_id(page, m, wait_ms=RESULT_WAIT_MS)
-
-    def _score_in_state_for(self, m: RawMatch) -> tuple[int, int] | None:
-        """Procura um placar ja no estado WS: pela chave do estado, pelo FI (id
-        numerico, que casa com o match_id do store) e por nome dos times."""
-        st = self._events_state.get(m.match_id)
-        if st and st.get("score"):
-            return st["score"]
-        for state in self._events_state.values():
-            if state.get("fi") == m.match_id and state.get("score"):
-                return state["score"]
-        _, st2 = self._ws_state_by_teams(m.home_team, m.away_team)
-        if st2 and st2.get("score"):
-            return st2["score"]
-        return None
-
-    def _open_event_by_id(
-        self, page, m: RawMatch, wait_ms: int,
-    ) -> tuple[int, int] | None:
-        """Abre o evento pelo id e espera um placar aparecer no estado WS.
-
-        Isolado de proposito: a SPA nova da bet365 pode nao renderizar o
-        deep-link de hash (ver memoria), entao este e o ponto a confirmar/ajustar
-        ao vivo (template em BET365_EVENT_URL_TEMPLATE). Mesmo sem DOM, abrir o
-        evento pode assinar o WS e trazer o placar — que e o que harvestamos.
-        """
-        import time as _t
-
-        url = BET365_EVENT_URL_TEMPLATE.format(event_id=m.match_id)
-        try:
-            page.goto(url, timeout=NAV_TIMEOUT_MS)
-        except Exception as e:
-            print(f"      ! goto(id) falhou: {str(e).splitlines()[0]}")
-        deadline = _t.time() + wait_ms / 1000.0
-        while _t.time() < deadline:
-            sc = self._score_in_state_for(m)
-            if sc is not None:
-                return sc
-            try:
-                page.wait_for_timeout(500)
-            except Exception:
-                _t.sleep(0.5)
-        return None
-
-    def _dump_event_fields(self) -> None:
-        """Grava os campos crus de EV de todos os eventos vistos, pra confirmar
-        ao vivo qual campo carrega o placar (uso com --dump-scores)."""
-        try:
-            DEBUG_DIR.mkdir(parents=True, exist_ok=True)
-            payload = {
-                ev_id: {
-                    "name": st.get("name"),
-                    "score_detected": st.get("score"),
-                    "ev_fields": st.get("ev_fields", {}),
-                }
-                for ev_id, st in self._events_state.items()
-                if st.get("ev_fields")
-            }
-            path = DEBUG_DIR / "event_fields.json"
-            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            print(f"[captura] campos de EV dumpados em {path} ({len(payload)} eventos) "
-                  f"-> procure o placar e ajuste SCORE_FIELD_CANDIDATES.")
-        except Exception as e:
-            print(f"[captura] (falha ao dumpar campos de EV: {e})")
 
     def _capture_current(
         self, page, hint_teams: tuple[str | None, str | None] | None = None,
@@ -916,21 +764,6 @@ class Bet365Scraper:
                 if len(candidates) >= max_candidates:
                     return candidates
         return candidates
-
-
-def unresolved_past_matches(
-    matches: list[RawMatch],
-    results: dict[str, tuple[int, int]],
-    now: datetime,
-) -> list[RawMatch]:
-    """Jogos ja comecados/encerrados (match_date < now) que ainda nao tem placar
-    coletado, ordenados por data. Estes sao os alvos do comando `results`."""
-    targets = [
-        m for m in matches
-        if m.match_date and m.match_date < now and m.match_id not in results
-    ]
-    targets.sort(key=lambda m: m.match_date)
-    return targets
 
 
 EVENT_ID_URL_RE = re.compile(r"/E(\d+)/")
