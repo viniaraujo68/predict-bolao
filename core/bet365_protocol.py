@@ -159,12 +159,13 @@ def parse_frame(frame: str) -> list[ParsedEvent]:
     return list(events.values())
 
 
-# Placar de um evento (jogo em andamento/encerrado) nos campos crus do EV.
-# A bet365 publica o placar num destes campos, em formato "casa-fora" (ex "2-1");
-# a lista e best-effort e deve ser confirmada/ajustada com um dump ao vivo de um
-# jogo ja encerrado (rode `extract --dump-scores`). SS e o candidato mais provavel.
+# Placar de um evento nos campos crus do EV. VALIDADO ao vivo em 14/06/2026
+# (probe de inplay): o placar vem em `SS` no formato "casa-fora" (ex "0-1"); 156
+# eventos com placar confirmaram. NAO usar FS (e flag de estagio, valor "1"),
+# nem XP/CS (carregam outros "n-n" que nao sao o placar principal). O id numerico
+# do evento (que casa com o match_id do store) e o campo `FI`.
 SCORE_RE = re.compile(r"^(\d{1,2})-(\d{1,2})$")
-SCORE_FIELD_CANDIDATES = ("SS", "SC", "FS", "SL", "XP")
+SCORE_FIELD_CANDIDATES = ("SS",)
 
 
 def parse_event_score(fields: dict) -> tuple[int, int] | None:
