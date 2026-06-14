@@ -1,0 +1,8 @@
+patchright>=1.49.0
+polars>=1.10.0
+scipy>=1.14.0
+numpy>=2.1.0
+rich>=13.9.0
+typer>=0.15.0
+pydantic>=2.10.0
+beautifulsoup4>=4.12.0
