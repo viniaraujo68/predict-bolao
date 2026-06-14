@@ -195,7 +195,8 @@ function readPts() {
 }
 
 // Regras do bolao: errou o resultado -> 0; acertou -> base + no maximo um
-// bonus de placar + bonus de goleada (jogo real com time fazendo 4+).
+// bonus de placar + bonus de goleada (so se o PALPITE e o jogo real tiverem
+// um time fazendo 4+, i.e. voce previu a goleada e ela aconteceu).
 function pointsFor(i, j, a, b, pts) {
   const pd = i - j, rd = a - b;
   if (sgn(pd) !== sgn(rd)) return 0;
@@ -209,7 +210,7 @@ function pointsFor(i, j, a, b, pts) {
     else if (pd === rd) e += pts.diff;
     else if (lp === lr) e += pts.lscore;
   }
-  if (Math.max(a, b) >= pts.blowoutGoals) e += pts.blowout;
+  if (Math.max(i, j) >= pts.blowoutGoals && Math.max(a, b) >= pts.blowoutGoals) e += pts.blowout;
   return e;
 }
 
