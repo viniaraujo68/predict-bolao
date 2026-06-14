@@ -25,6 +25,7 @@ from core.persistence import (
 )
 from core.processor import enrich, to_dataframe
 from core.report import write_html
+from core.results_source import dates_window, fetch_scoreboard, match_event
 from core.schemas import RawMatch, RichMatch
 
 app = typer.Typer(help="Motor de palpites para bolão da Copa do Mundo (bet365.bet.br).")
@@ -316,6 +317,51 @@ def resultado(
         console.print(f"[green]Resultado salvo: {m.home_team} {h} x {a} {m.away_team}[/green]")
 
     df, html_path, rich = _generate_reports(load_store(), datetime.now())
+    console.print(f"[green]Relatório HTML atualizado: {html_path}[/green]")
+    _render_resolved(rich)
+
+
+@app.command(name="buscar-resultados")
+def buscar_resultados() -> None:
+    """Busca na ESPN (por data) o placar final dos jogos já encerrados sem placar
+    e grava em resultados.json — casa por nome dos times, sem precisar de id nem
+    do browser. Não sobrescreve placares já existentes."""
+    from core.ingestion import unresolved_past_matches
+
+    store = load_store()
+    if not store:
+        console.print("[red]Store vazio (output/odds_atuais.json). Rode 'python main.py extract' antes.[/red]")
+        raise typer.Exit(code=1)
+
+    targets = unresolved_past_matches(store, load_results(), datetime.now())
+    if not targets:
+        console.print("[green]Nenhum jogo encerrado pendente de placar — tudo já resolvido.[/green]")
+        return
+
+    console.print(f"[dim]{len(targets)} jogos encerrados sem placar; consultando a ESPN...[/dim]")
+    pool = []
+    for date in dates_window(targets):
+        try:
+            pool.extend(fetch_scoreboard(date))
+        except Exception as e:
+            console.print(f"[yellow]  ! falha ao consultar {date}: {str(e).splitlines()[0]}[/yellow]")
+
+    if not pool:
+        console.print("[red]Não consegui nenhum dado da ESPN (sem rede ou API mudou).[/red]")
+        raise typer.Exit(code=1)
+
+    aplicados = 0
+    for m in targets:
+        score = match_event(m, pool)
+        if score is None:
+            console.print(f"[yellow]  ? sem placar na ESPN: {m.home_team} x {m.away_team}[/yellow]")
+            continue
+        set_result(m.match_id, score[0], score[1])
+        aplicados += 1
+        console.print(f"[green]  + {m.home_team} {score[0]} x {score[1]} {m.away_team}[/green]")
+
+    console.print(f"[green]{aplicados}/{len(targets)} placares gravados.[/green]")
+    _, html_path, rich = _generate_reports(load_store(), datetime.now())
     console.print(f"[green]Relatório HTML atualizado: {html_path}[/green]")
     _render_resolved(rich)
 
