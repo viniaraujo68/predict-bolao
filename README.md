@@ -111,6 +111,20 @@ pontos que rendeu, mais um placar acumulado com o total da estratégia ao longo
 da Copa. No HTML o total recalcula ao vivo conforme você edita as regras de
 pontuação, e a célula do placar real fica marcada no heatmap.
 
+**Coleta automática de placares (ESPN, por data — recomendado):**
+
+```bash
+python main.py buscar-resultados
+```
+
+Pega do store os jogos **já encerrados e ainda sem placar**, consulta o
+scoreboard público da ESPN (`fifa.world`, em português) nas datas deles e grava
+o placar final em `resultados.json` — **casando por nome dos times + data, sem
+precisar de id nem do browser**, e orientando o placar pela identidade dos times
+(bet365 e ESPN podem discordar de mando em sede neutra). Não sobrescreve placares
+já existentes. Diferenças de grafia store↔ESPN (Qatar/Catar, USA/Estados Unidos,
+Tchéquia/República Tcheca, …) estão no mapa de apelidos em `core/results_source.py`.
+
 **Coleta automática de placares (bet365):** durante o `extract`, no prompt de
 captura há o comando **`results`** (igual ao `auto`, mas pra resultados): ele
 pega do store os jogos **já encerrados (data passada) e ainda sem placar** e
