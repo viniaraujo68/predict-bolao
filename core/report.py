@@ -320,10 +320,13 @@ function updateWhatif(card, m, E, pts) {
   if (td && !td.classList.contains('pick-cell')) td.classList.add('sel-cell');
 }
 
-// Maior pontuacao possivel pra um resultado (palpite com hindsight = placar exato).
+// Maior pontuacao possivel pra um resultado (palpite com hindsight = placar
+// exato). O range cobre o placar real mesmo quando ele estoura o grid 6x6 do
+// heatmap (ex: goleada 7-1), pra "de X possiveis" contar o placar exato.
 function bestPossible(a, b, pts) {
   let best = 0;
-  for (let i = 0; i < 7; i++) for (let j = 0; j < 7; j++)
+  const ni = Math.max(6, a), nj = Math.max(6, b);
+  for (let i = 0; i <= ni; i++) for (let j = 0; j <= nj; j++)
     best = Math.max(best, pointsFor(i, j, a, b, pts));
   return best;
 }
@@ -340,10 +343,14 @@ function updateResultCard(card, m, pts) {
   const exact = pi === a && pj === b;
   const td = card.querySelector(`td[data-i="${a}"][data-j="${b}"]`);
   if (td) td.classList.add('actual-cell');
+  // Placar real fora do grid 6x6 (goleada): nao da pra marcar a celula.
+  const offGrid = a >= m.matrix.length || b >= m.matrix.length;
   const verdict = exact ? 'placar exato ✓' : correct ? 'acertou o resultado' : 'errou o resultado';
   panel.className = 'result ' + (got > 0 ? 'hit' : 'miss');
   panel.innerHTML =
-    `Resultado real <span class="score">${a}-${b}</span> · palpite <b>${m.pick}</b> → ` +
+    `Resultado real <span class="score">${a}-${b}</span>` +
+    (offGrid ? ' <span style="color:var(--muted)">(fora do heatmap)</span>' : '') +
+    ` · palpite <b>${m.pick}</b> → ` +
     `<span class="pts">${got} pts</span> <span style="color:var(--muted)">de ${max} possíveis · ${verdict}</span>`;
   panel.hidden = false;
   return { got, max, correct, exact };
