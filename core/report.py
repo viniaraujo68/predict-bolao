@@ -184,6 +184,7 @@ const pct = p => (p * 100).toFixed(2) + '%';
 const fmt = x => x.toFixed(3);
 const sgn = Math.sign;
 let VIEW = 'ep';
+let STATUS = 'all';   // all | resolved | unresolved
 
 function readPts() {
   const v = id => +document.getElementById(id).value || 0;
@@ -321,12 +322,12 @@ function updateWhatif(card, m, E, pts) {
 }
 
 // Maior pontuacao possivel pra um resultado (palpite com hindsight = placar
-// exato). O range cobre o placar real mesmo quando ele estoura o grid 6x6 do
-// heatmap (ex: goleada 7-1), pra "de X possiveis" contar o placar exato.
+// exato). Independe do tamanho do heatmap: o range escala com o placar real,
+// entao funciona pra qualquer goleada (7-1, 15-0, ...) sem bugar o "de X possiveis".
 function bestPossible(a, b, pts) {
   let best = 0;
-  const ni = Math.max(6, a), nj = Math.max(6, b);
-  for (let i = 0; i <= ni; i++) for (let j = 0; j <= nj; j++)
+  const hi = Math.max(a, b) + 1;
+  for (let i = 0; i <= hi; i++) for (let j = 0; j <= hi; j++)
     best = Math.max(best, pointsFor(i, j, a, b, pts));
   return best;
 }
@@ -401,17 +402,24 @@ function refreshAll() {
   updateScoreboard(agg);
 }
 
-function applyDayFilter() {
+function statusOk(m) {
+  const resolved = !!(m && m.result);
+  return STATUS === 'all' || (STATUS === 'resolved' && resolved) || (STATUS === 'unresolved' && !resolved);
+}
+
+function applyFilters() {
   const day = document.querySelector('.chip.active').dataset.day;
   document.querySelectorAll('.grid .card').forEach(c => {
-    c.style.display = (!day || c.dataset.day === day) ? '' : 'none';
+    const m = byId[c.dataset.id];
+    const dayOk = !day || c.dataset.day === day;
+    c.style.display = (dayOk && statusOk(m)) ? '' : 'none';
   });
 }
 
 function copyPicks() {
   const day = document.querySelector('.chip.active').dataset.day;
   const lines = DATA.matches
-    .filter(m => m.pick && (!day || m.day === day))
+    .filter(m => m.pick && (!day || m.day === day) && statusOk(m))
     .map(m => `${m.day ? m.day + ' — ' : ''}${m.home} ${m.pick.replace('-', ' x ')} ${m.away}`);
   const text = `Palpites ${DATA.title}\\n` + lines.join('\\n');
   navigator.clipboard.writeText(text).then(() => {
@@ -444,14 +452,18 @@ document.querySelector('.grid').addEventListener('click', e => {
 document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => {
   document.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
   c.classList.add('active');
-  applyDayFilter();
+  applyFilters();
 }));
-document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
-  document.querySelectorAll('.seg button').forEach(x => x.classList.remove('active'));
-  b.classList.add('active');
-  VIEW = b.dataset.view;
-  refreshAll();
-}));
+// Cada .seg controla so a si mesmo (ativa um botao por grupo).
+function wireSeg(sel, onPick) {
+  document.querySelectorAll(sel + ' button').forEach(b => b.addEventListener('click', () => {
+    b.parentElement.querySelectorAll('button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    onPick(b);
+  }));
+}
+wireSeg('#seg-view', b => { VIEW = b.dataset.view; refreshAll(); });
+wireSeg('#seg-status', b => { STATUS = b.dataset.status; applyFilters(); });
 ['pts-base', 'pts-exact', 'pts-wscore', 'pts-diff', 'pts-lscore', 'pts-blowout'].forEach(id =>
   document.getElementById(id).addEventListener('input', refreshAll));
 document.getElementById('copy-btn').addEventListener('click', copyPicks);
@@ -652,7 +664,11 @@ def write_html(rich: list[RichMatch], ts: datetime | None = None) -> Path:
 <div class="scoreboard" id="scoreboard" hidden></div>
 <div class="toolbar">
 <span><span class="tb-label">Dia:</span>{chips}</span>
-<span><span class="tb-label">Ver:</span><span class="seg">
+<span><span class="tb-label">Jogos:</span><span class="seg" id="seg-status">
+<button class="active" data-status="all">Todos</button>
+<button data-status="resolved">Resolvidos</button>
+<button data-status="unresolved">Não resolvidos</button></span></span>
+<span><span class="tb-label">Ver:</span><span class="seg" id="seg-view">
 <button class="active" data-view="ep">Pontos esperados</button>
 <button data-view="prob">Probabilidade</button></span></span>
 <span><span class="tb-label">Pontuação:</span>

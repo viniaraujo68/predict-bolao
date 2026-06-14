@@ -175,10 +175,12 @@ def _render_resolved(rich: list[RichMatch]) -> None:
             exact = (pi, pj) == (a, b)
         else:
             got, correct, exact = 0.0, False, False
-        # range cobre o placar real mesmo numa goleada fora do grid (ex: 7-1)
+        # range escala com o placar real (sem limite de gols): funciona pra
+        # qualquer goleada (7-1, 15-0, ...), independente do tamanho do heatmap
+        hi = max(a, b) + 2
         best = max(
             bolao_points(i, j, a, b)
-            for i in range(max(7, a + 1)) for j in range(max(7, b + 1))
+            for i in range(hi) for j in range(hi)
         )
         total += got
         max_total += best
