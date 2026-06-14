@@ -37,6 +37,7 @@ from core.bet365_protocol import (
     ParsedEvent,
     ParsedMarket,
     classify_market_kind,
+    parse_event_score,
     parse_frame,
 )
 from core.dom_parser import extract_match_from_html
@@ -61,8 +62,9 @@ class CapturedPayload:
 class Bet365Scraper:
     """Encapsula um contexto Patchright persistente apontado pra bet365.bet.br."""
 
-    def __init__(self, debug: bool = False) -> None:
+    def __init__(self, debug: bool = False, dump_scores: bool = False) -> None:
         self.debug = debug
+        self.dump_scores = dump_scores
         self._captured: list[CapturedPayload] = []
         self._ws_frames: list[str] = []
         self._events_state: dict[str, dict] = {}
@@ -153,14 +155,22 @@ class Bet365Scraper:
         except Exception:
             return
         for ev in events:
-            if not ev.markets:
+            # Jogos encerrados podem chegar so com o placar (sem mercados): ainda
+            # assim atualizamos o estado pra coletar o resultado.
+            score = parse_event_score(ev.raw_fields)
+            if not ev.markets and score is None and not ev.raw_fields:
                 continue
             state = self._events_state.setdefault(
-                ev.event_id, {"name": ev.name, "markets": {}, "last_seen": time.time()}
+                ev.event_id,
+                {"name": ev.name, "markets": {}, "last_seen": time.time(), "score": None, "ev_fields": {}},
             )
             state["last_seen"] = time.time()
             if ev.name and ev.name != "?":
                 state["name"] = ev.name
+            if ev.raw_fields:
+                state.setdefault("ev_fields", {}).update(ev.raw_fields)
+            if score is not None:
+                state["score"] = score
             for market in ev.markets:
                 kind = classify_market_kind(market)
                 if kind is None:
@@ -249,11 +259,50 @@ class Bet365Scraper:
             f"\n[captura] {len(self._dom_matches)} partidas via DOM; "
             f"{len(self._ws_frames)} WS frames; {len(self._captured)} HTTP responses."
         )
+        scores = self.collected_scores()
+        if scores:
+            print(f"[captura] {len(scores)} placares detectados nos frames WS.")
+        if self.dump_scores:
+            self._dump_event_fields()
         return self._build_matches()
 
     def _build_matches(self) -> list[RawMatch]:
         """Retorna as partidas capturadas (DOM + fallback por WebSocket)."""
         return list(self._dom_matches)
+
+    def collected_scores(self) -> list[tuple[str, str, tuple[int, int]]]:
+        """Placares detectados nos frames WS durante a captura.
+
+        Retorna [(event_id, nome_do_evento, (gols_casa, gols_fora))]. Inclui
+        jogos em andamento — quem decide se ja terminou e o chamador (via data).
+        """
+        out: list[tuple[str, str, tuple[int, int]]] = []
+        for ev_id, st in self._events_state.items():
+            sc = st.get("score")
+            if sc is not None:
+                out.append((ev_id, st.get("name") or "", sc))
+        return out
+
+    def _dump_event_fields(self) -> None:
+        """Grava os campos crus de EV de todos os eventos vistos, pra confirmar
+        ao vivo qual campo carrega o placar (uso com --dump-scores)."""
+        try:
+            DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+            payload = {
+                ev_id: {
+                    "name": st.get("name"),
+                    "score_detected": st.get("score"),
+                    "ev_fields": st.get("ev_fields", {}),
+                }
+                for ev_id, st in self._events_state.items()
+                if st.get("ev_fields")
+            }
+            path = DEBUG_DIR / "event_fields.json"
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"[captura] campos de EV dumpados em {path} ({len(payload)} eventos) "
+                  f"-> procure o placar e ajuste SCORE_FIELD_CANDIDATES.")
+        except Exception as e:
+            print(f"[captura] (falha ao dumpar campos de EV: {e})")
 
     def _capture_current(
         self, page, hint_teams: tuple[str | None, str | None] | None = None,
