@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+
+browser_data/
+output/
+.DS_Store
+.env
+.idea/
+.vscode/
