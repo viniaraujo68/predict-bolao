@@ -17,10 +17,11 @@ NAV_TIMEOUT_MS = 60_000
 RESPONSE_WAIT_MS = 30_000
 DEFAULT_WINDOW_HOURS = 48
 
-# Maximo de gols por time na matriz Dixon-Coles (inclusivo). 5 -> grid 6x6.
-# Truncar aqui nao muda as decisoes: a massa de probabilidade acima de 5 gols
-# por time e desprezivel (auditado em 12/06 contra forca bruta).
-MAX_GOALS = 5
+# Maximo de gols por time na matriz Dixon-Coles (inclusivo). 7 -> grid 8x8.
+# Nao muda as decisoes (a massa acima de ~5 gols e desprezivel, auditado em
+# 12/06 contra forca bruta) — 7 e so pra o heatmap do relatorio mostrar
+# goleadas reais ate 7-x (ex: Alemanha 7-1).
+MAX_GOALS = 7
 
 POISSON_LAMBDA_BOUNDS = (0.1, 8.0)
 
