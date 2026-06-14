@@ -93,25 +93,7 @@ python main.py play output/capturas/2026-06-12_15h30.json     # de um snapshot e
 `play` também aceita os `raw_*.json` antigos (usa o `saved_at` do arquivo como
 `captured_at` quando a partida não traz o seu).
 
-**4. Registrar placares reais (jogos resolvidos):**
-
-```bash
-python main.py resultado "México" 2-1     # busca por nome do time
-python main.py resultado 185942569 2-1    # ou pelo match_id (sem ambiguidade)
-python main.py resultado "México" --remover
-```
-
-Os placares ficam em `output/resultados.json`, separados das odds (uma nova
-captura nunca apaga um resultado). Aceita `2-1`, `2x1` ou `2 1` (casa-fora). Se a
-busca casar com mais de uma partida, ele lista as opções com o `match_id`.
-
-Com placares registrados, o relatório (terminal e HTML) passa a mostrar, por
-jogo resolvido, o palpite de **maior pontos esperados** vs o placar real e os
-pontos que rendeu, mais um placar acumulado com o total da estratégia ao longo
-da Copa. No HTML o total recalcula ao vivo conforme você edita as regras de
-pontuação, e a célula do placar real fica marcada no heatmap.
-
-**Coleta automática de placares (ESPN, por data — recomendado):**
+**4. Preencher os placares dos jogos encerrados (ESPN):**
 
 ```bash
 python main.py buscar-resultados
@@ -119,16 +101,23 @@ python main.py buscar-resultados
 
 Pega do store os jogos **já encerrados e ainda sem placar**, consulta o
 scoreboard público da ESPN (`fifa.world`, em português) nas datas deles e grava
-o placar final em `resultados.json` — **casando por nome dos times + data, sem
-precisar de id nem do browser**, e orientando o placar pela identidade dos times
-(bet365 e ESPN podem discordar de mando em sede neutra). Não sobrescreve placares
-já existentes. Diferenças de grafia store↔ESPN (Qatar/Catar, USA/Estados Unidos,
-Tchéquia/República Tcheca, …) estão no mapa de apelidos em `core/results_source.py`.
+o placar final em `output/resultados.json` — **casando por nome dos times + data,
+sem precisar de id nem do browser**, e orientando o placar pela identidade dos
+times (bet365 e ESPN podem discordar de mando em sede neutra). Jogos que já têm
+placar são ignorados (não reconsulta a ESPN). Diferenças de grafia store↔ESPN
+(Qatar/Catar, USA/Estados Unidos, Tchéquia/República Tcheca, …) estão no mapa de
+apelidos em `core/results_source.py`.
 
-> O `extract` (bet365) cuida só das **odds** — não coleta placar. Para resultados,
-> use `buscar-resultados` (automático) ou `resultado` (manual). Tentamos puxar o
-> placar pelo bet365 e ficou comprovado que a SPA não serve jogos encerrados por
-> id; por isso a fonte de resultados é a ESPN.
+Os placares ficam em `output/resultados.json`, separados das odds (uma nova
+captura nunca apaga um resultado). Com eles, o relatório (terminal e HTML) passa
+a mostrar, por jogo resolvido, o palpite de **maior pontos esperados** vs o placar
+real e os pontos que rendeu, mais um placar acumulado com o total da estratégia ao
+longo da Copa. No HTML o total recalcula ao vivo conforme você edita as regras de
+pontuação, e a célula do placar real fica marcada no heatmap.
+
+> O `extract` (bet365) cuida só das **odds** — não coleta placar. A fonte de
+> resultados é a ESPN (`buscar-resultados`); tentamos puxar pelo bet365 e ficou
+> comprovado que a SPA não serve jogos encerrados por id.
 
 **Flags úteis:**
 

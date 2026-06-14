@@ -134,13 +134,6 @@ def set_result(match_id: str, home: int, away: int) -> Path:
     return save_results(results)
 
 
-def remove_result(match_id: str) -> Path:
-    """Apaga o placar real de uma partida (se existir)."""
-    results = load_results()
-    results.pop(match_id, None)
-    return save_results(results)
-
-
 def load_snapshot(path: Path | str) -> tuple[list[RawMatch], datetime | None]:
     """Carrega um snapshot/raw antigo especifico.
 
