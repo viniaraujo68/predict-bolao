@@ -93,6 +93,24 @@ python main.py play output/capturas/2026-06-12_15h30.json     # de um snapshot e
 `play` também aceita os `raw_*.json` antigos (usa o `saved_at` do arquivo como
 `captured_at` quando a partida não traz o seu).
 
+**4. Registrar placares reais (jogos resolvidos):**
+
+```bash
+python main.py resultado "México" 2-1     # busca por nome do time
+python main.py resultado 185942569 2-1    # ou pelo match_id (sem ambiguidade)
+python main.py resultado "México" --remover
+```
+
+Os placares ficam em `output/resultados.json`, separados das odds (uma nova
+captura nunca apaga um resultado). Aceita `2-1`, `2x1` ou `2 1` (casa-fora). Se a
+busca casar com mais de uma partida, ele lista as opções com o `match_id`.
+
+Com placares registrados, o relatório (terminal e HTML) passa a mostrar, por
+jogo resolvido, o palpite de **maior pontos esperados** vs o placar real e os
+pontos que rendeu, mais um placar acumulado com o total da estratégia ao longo
+da Copa. No HTML o total recalcula ao vivo conforme você edita as regras de
+pontuação, e a célula do placar real fica marcada no heatmap.
+
 **Flags úteis:**
 
 - `--debug-network` — salva todos os JSONs capturados em `output/debug/` (útil pra ajustar `core/parsers.py` se a estrutura da bet365 mudar).
@@ -108,7 +126,7 @@ predict-bolao/
 │   ├── math_engine.py    # Calibração DC + mistura + pontos esperados
 │   ├── parsers.py        # Heurísticas pra extrair mercados de JSONs
 │   ├── ingestion.py      # Patchright + captura de responses
-│   ├── persistence.py    # Snapshots imutáveis + store odds_atuais.json
+│   ├── persistence.py    # Snapshots imutáveis + store odds_atuais.json + resultados.json
 │   ├── processor.py      # Pipeline Polars (DataFrame da tabela do terminal)
 │   └── report.py         # Relatório HTML interativo (heatmap + simulador de palpite)
 ├── browser_data/         # Perfil persistente do Patchright (gitignored)

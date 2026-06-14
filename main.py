@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from datetime import datetime
 
 import polars as pl
@@ -11,24 +13,39 @@ from rich.table import Table
 
 from core.backtest import run_backtest
 from core.ingestion import Bet365Scraper
-from core.persistence import load_snapshot, load_store, save_snapshot, update_store
+from core.math_engine import bolao_points
+from core.persistence import (
+    load_results,
+    load_snapshot,
+    load_store,
+    remove_result,
+    save_snapshot,
+    set_result,
+    update_store,
+)
 from core.processor import enrich, to_dataframe
 from core.report import write_html
-from core.schemas import RawMatch
+from core.schemas import RawMatch, RichMatch
 
 app = typer.Typer(help="Motor de palpites para bolão da Copa do Mundo (bet365.bet.br).")
 console = Console()
 
 
 def _generate_reports(matches: list[RawMatch], ts: datetime) -> tuple:
-    """Gera o HTML a partir das partidas e retorna (df, html_path).
+    """Gera o HTML a partir das partidas e retorna (df, html_path, rich).
 
     O df serve so pra tabela do terminal; toda a saida persistida e HTML.
+    Anexa placares reais (resultados.json) aos jogos ja resolvidos.
     """
     rich = enrich(matches)
+    results = load_results()
+    for r in rich:
+        res = results.get(r.raw.match_id)
+        if res:
+            r.actual_home, r.actual_away = res
     df = to_dataframe(rich)
     html_path = write_html(rich, ts=ts)
-    return df, html_path
+    return df, html_path, rich
 
 
 @app.command()
@@ -56,9 +73,10 @@ def extract(
 
     # Relatorios sempre do store COMPLETO (nao so do snapshot recem-capturado).
     full = load_store()
-    df, html_path = _generate_reports(full, ts)
+    df, html_path, rich = _generate_reports(full, ts)
     console.print(f"[green]Relatório HTML em: {html_path}[/green]\n")
     _render_table(df)
+    _render_resolved(rich)
 
 
 @app.command()
@@ -82,9 +100,10 @@ def play(
             raise typer.Exit(code=1)
         console.print(f"[dim]Recarregado do store: {len(matches)} partidas[/dim]\n")
 
-    df, html_path = _generate_reports(matches, datetime.now())
+    df, html_path, rich = _generate_reports(matches, datetime.now())
     console.print(f"[green]Relatório HTML em: {html_path}[/green]\n")
     _render_table(df)
+    _render_resolved(rich)
 
 
 def _render_table(df: pl.DataFrame) -> None:
@@ -121,6 +140,131 @@ def _render_table(df: pl.DataFrame) -> None:
         )
 
     console.print(table)
+
+
+def _render_resolved(rich: list[RichMatch]) -> None:
+    """Mostra os jogos resolvidos: palpite (maior E[pontos]) vs placar real e
+    o total acumulado da estrategia."""
+    resolved = [r for r in rich if r.is_resolved]
+    if not resolved:
+        return
+
+    table = Table(title="Jogos resolvidos — desempenho da estratégia", show_lines=False)
+    table.add_column("Partida", style="cyan")
+    table.add_column("Palpite", justify="center", style="bold green")
+    table.add_column("Real", justify="center")
+    table.add_column("Pontos", justify="right")
+    table.add_column("Máx", justify="right", style="dim")
+
+    total = max_total = 0.0
+    n_correct = n_exact = 0
+    resolved.sort(key=lambda r: (r.raw.match_date is None, r.raw.match_date))
+    for r in resolved:
+        a, b = r.actual_home, r.actual_away
+        pick = r.prediction.score or "-"
+        if r.prediction.score:
+            pi, pj = (int(x) for x in r.prediction.score.split("-"))
+            got = bolao_points(pi, pj, a, b)
+            correct = (pi > pj) == (a > b) and (pi < pj) == (a < b)
+            exact = (pi, pj) == (a, b)
+        else:
+            got, correct, exact = 0.0, False, False
+        best = max(
+            bolao_points(i, j, a, b) for i in range(7) for j in range(7)
+        )
+        total += got
+        max_total += best
+        n_correct += int(correct)
+        n_exact += int(exact)
+        style = "green" if got > 0 else "red"
+        table.add_row(
+            f"{r.raw.home_team} x {r.raw.away_team}",
+            pick,
+            f"{a}-{b}",
+            f"[{style}]{got:.0f}[/{style}]",
+            f"{best:.0f}",
+        )
+
+    console.print()
+    console.print(table)
+    n = len(resolved)
+    avg = total / n if n else 0.0
+    effic = total / max_total * 100 if max_total else 0.0
+    console.print(
+        f"[bold]Total: {total:.0f} pts[/bold] em {n} jogos "
+        f"([green]{avg:.2f}/jogo[/green]) · resultados certos {n_correct}/{n} · "
+        f"placares exatos {n_exact}/{n} · aproveitamento {total:.0f}/{max_total:.0f} ({effic:.0f}%)"
+    )
+
+
+def _normalize(s: str) -> str:
+    """Minusculas sem acento, pra casar nomes de time digitados a mao."""
+    nfkd = unicodedata.normalize("NFKD", s)
+    return "".join(c for c in nfkd if not unicodedata.combining(c)).lower().strip()
+
+
+def _parse_score(placar: str) -> tuple[int, int] | None:
+    """Aceita '2-1', '2x1', '2 1'. Retorna (casa, fora) ou None."""
+    m = re.fullmatch(r"\s*(\d+)\s*[-x: ]\s*(\d+)\s*", placar, re.IGNORECASE)
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2))
+
+
+def _find_matches(matches: list[RawMatch], busca: str) -> list[RawMatch]:
+    """Casa por match_id exato ou por substring (sem acento) no nome dos times."""
+    exact = [m for m in matches if m.match_id == busca]
+    if exact:
+        return exact
+    q = _normalize(busca)
+    return [
+        m for m in matches
+        if q in _normalize(m.home_team) or q in _normalize(m.away_team)
+    ]
+
+
+@app.command()
+def resultado(
+    busca: str = typer.Argument(..., help="Time (parte do nome) ou match_id da partida."),
+    placar: str | None = typer.Argument(None, help="Placar real casa-fora, ex: 2-1. Omita com --remover."),
+    remover: bool = typer.Option(False, "--remover", help="Remove o placar salvo da partida."),
+) -> None:
+    """Registra (ou remove) o placar real de uma partida e regenera o relatório."""
+    matches = load_store()
+    if not matches:
+        console.print("[red]Store vazio (output/odds_atuais.json). Rode 'python main.py extract' antes.[/red]")
+        raise typer.Exit(code=1)
+
+    found = _find_matches(matches, busca)
+    if not found:
+        console.print(f"[red]Nenhuma partida casa com '{busca}'.[/red]")
+        raise typer.Exit(code=1)
+    if len(found) > 1:
+        console.print(f"[yellow]'{busca}' casa com {len(found)} partidas — seja mais específico:[/yellow]")
+        for m in found:
+            when = m.match_date.strftime("%d/%m %H:%M") if m.match_date else "?"
+            console.print(f"  • {m.home_team} x {m.away_team} ({when}) [dim]{m.match_id}[/dim]")
+        raise typer.Exit(code=1)
+
+    m = found[0]
+    if remover:
+        remove_result(m.match_id)
+        console.print(f"[green]Resultado removido: {m.home_team} x {m.away_team}[/green]")
+    else:
+        if not placar:
+            console.print("[red]Informe o placar (ex: 2-1) ou use --remover.[/red]")
+            raise typer.Exit(code=1)
+        parsed = _parse_score(placar)
+        if parsed is None:
+            console.print(f"[red]Placar inválido: '{placar}'. Use casa-fora, ex: 2-1.[/red]")
+            raise typer.Exit(code=1)
+        h, a = parsed
+        set_result(m.match_id, h, a)
+        console.print(f"[green]Resultado salvo: {m.home_team} {h} x {a} {m.away_team}[/green]")
+
+    df, html_path, rich = _generate_reports(load_store(), datetime.now())
+    console.print(f"[green]Relatório HTML atualizado: {html_path}[/green]")
+    _render_resolved(rich)
 
 
 @app.command()
