@@ -175,8 +175,10 @@ def _render_resolved(rich: list[RichMatch]) -> None:
             exact = (pi, pj) == (a, b)
         else:
             got, correct, exact = 0.0, False, False
+        # range cobre o placar real mesmo numa goleada fora do grid (ex: 7-1)
         best = max(
-            bolao_points(i, j, a, b) for i in range(7) for j in range(7)
+            bolao_points(i, j, a, b)
+            for i in range(max(7, a + 1)) for j in range(max(7, b + 1))
         )
         total += got
         max_total += best
