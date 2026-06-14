@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-import unicodedata
 from datetime import datetime
 
 import polars as pl
@@ -18,7 +16,6 @@ from core.persistence import (
     load_results,
     load_snapshot,
     load_store,
-    remove_result,
     save_snapshot,
     set_result,
     update_store,
@@ -204,76 +201,6 @@ def _render_resolved(rich: list[RichMatch]) -> None:
         f"([green]{avg:.2f}/jogo[/green]) · resultados certos {n_correct}/{n} · "
         f"placares exatos {n_exact}/{n} · aproveitamento {total:.0f}/{max_total:.0f} ({effic:.0f}%)"
     )
-
-
-def _normalize(s: str) -> str:
-    """Minusculas sem acento, pra casar nomes de time digitados a mao."""
-    nfkd = unicodedata.normalize("NFKD", s)
-    return "".join(c for c in nfkd if not unicodedata.combining(c)).lower().strip()
-
-
-def _parse_score(placar: str) -> tuple[int, int] | None:
-    """Aceita '2-1', '2x1', '2 1'. Retorna (casa, fora) ou None."""
-    m = re.fullmatch(r"\s*(\d+)\s*[-x: ]\s*(\d+)\s*", placar, re.IGNORECASE)
-    if not m:
-        return None
-    return int(m.group(1)), int(m.group(2))
-
-
-def _find_matches(matches: list[RawMatch], busca: str) -> list[RawMatch]:
-    """Casa por match_id exato ou por substring (sem acento) no nome dos times."""
-    exact = [m for m in matches if m.match_id == busca]
-    if exact:
-        return exact
-    q = _normalize(busca)
-    return [
-        m for m in matches
-        if q in _normalize(m.home_team) or q in _normalize(m.away_team)
-    ]
-
-
-@app.command()
-def resultado(
-    busca: str = typer.Argument(..., help="Time (parte do nome) ou match_id da partida."),
-    placar: str | None = typer.Argument(None, help="Placar real casa-fora, ex: 2-1. Omita com --remover."),
-    remover: bool = typer.Option(False, "--remover", help="Remove o placar salvo da partida."),
-) -> None:
-    """Registra (ou remove) o placar real de uma partida e regenera o relatório."""
-    matches = load_store()
-    if not matches:
-        console.print("[red]Store vazio (output/odds_atuais.json). Rode 'python main.py extract' antes.[/red]")
-        raise typer.Exit(code=1)
-
-    found = _find_matches(matches, busca)
-    if not found:
-        console.print(f"[red]Nenhuma partida casa com '{busca}'.[/red]")
-        raise typer.Exit(code=1)
-    if len(found) > 1:
-        console.print(f"[yellow]'{busca}' casa com {len(found)} partidas — seja mais específico:[/yellow]")
-        for m in found:
-            when = m.match_date.strftime("%d/%m %H:%M") if m.match_date else "?"
-            console.print(f"  • {m.home_team} x {m.away_team} ({when}) [dim]{m.match_id}[/dim]")
-        raise typer.Exit(code=1)
-
-    m = found[0]
-    if remover:
-        remove_result(m.match_id)
-        console.print(f"[green]Resultado removido: {m.home_team} x {m.away_team}[/green]")
-    else:
-        if not placar:
-            console.print("[red]Informe o placar (ex: 2-1) ou use --remover.[/red]")
-            raise typer.Exit(code=1)
-        parsed = _parse_score(placar)
-        if parsed is None:
-            console.print(f"[red]Placar inválido: '{placar}'. Use casa-fora, ex: 2-1.[/red]")
-            raise typer.Exit(code=1)
-        h, a = parsed
-        set_result(m.match_id, h, a)
-        console.print(f"[green]Resultado salvo: {m.home_team} {h} x {a} {m.away_team}[/green]")
-
-    df, html_path, rich = _generate_reports(load_store(), datetime.now())
-    console.print(f"[green]Relatório HTML atualizado: {html_path}[/green]")
-    _render_resolved(rich)
 
 
 @app.command(name="buscar-resultados")
