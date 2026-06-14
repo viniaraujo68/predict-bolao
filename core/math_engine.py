@@ -205,7 +205,8 @@ def bolao_points(pred_h: int, pred_a: int, real_h: int, real_a: int) -> float:
     Errou o resultado (vencedor/empate) → 0, sem bônus. Acertou → base +
     no máximo um bônus de placar (exato / placar do vencedor / saldo /
     placar do perdedor — acertar dois deles implicaria exato) + bônus de
-    goleada se o jogo real teve um time com BOLAO_BLOWOUT_GOALS+ gols.
+    goleada se o PALPITE e o jogo real tiveram um time com BOLAO_BLOWOUT_GOALS+
+    gols (i.e. você previu uma goleada e ela aconteceu).
     """
     pred_d, real_d = pred_h - pred_a, real_h - real_a
     if np.sign(pred_d) != np.sign(real_d):
@@ -225,7 +226,7 @@ def bolao_points(pred_h: int, pred_a: int, real_h: int, real_a: int) -> float:
             pts += BOLAO_BONUS_DIFF
         elif loser_pred == loser_real:
             pts += BOLAO_BONUS_LOSER_SCORE
-    if max(real_h, real_a) >= BOLAO_BLOWOUT_GOALS:
+    if max(pred_h, pred_a) >= BOLAO_BLOWOUT_GOALS and max(real_h, real_a) >= BOLAO_BLOWOUT_GOALS:
         pts += BOLAO_BONUS_BLOWOUT
     return float(pts)
 
@@ -252,7 +253,10 @@ def expected_points_matrix(prob: np.ndarray) -> np.ndarray:
                 np.where(winner_real == winner_pred, BOLAO_BONUS_WINNER_SCORE,
                 np.where(real_d == pred_d, BOLAO_BONUS_DIFF,
                 np.where(loser_real == loser_pred, BOLAO_BONUS_LOSER_SCORE, 0)))))
-            pts = ok * (BOLAO_BASE_OUTCOME + bonus + BOLAO_BONUS_BLOWOUT * blowout)
+            # Goleada so com palpite de goleada (max(i,j) >= limite) E jogo real
+            # de goleada (blowout). pred_blowout e escalar; blowout e array do real.
+            pred_blowout = max(i, j) >= BOLAO_BLOWOUT_GOALS
+            pts = ok * (BOLAO_BASE_OUTCOME + bonus + BOLAO_BONUS_BLOWOUT * blowout * pred_blowout)
             ep[i, j] = float((prob * pts).sum())
     return ep
 
