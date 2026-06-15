@@ -184,7 +184,7 @@ const pct = p => (p * 100).toFixed(2) + '%';
 const fmt = x => x.toFixed(3);
 const sgn = Math.sign;
 let VIEW = 'ep';
-let STATUS = 'all';   // all | resolved | unresolved
+let STATUS = 'unresolved';   // all | resolved | unresolved
 
 function readPts() {
   const v = id => +document.getElementById(id).value || 0;
@@ -470,6 +470,8 @@ document.getElementById('copy-btn').addEventListener('click', copyPicks);
 
 // visao padrao = pontos esperados: re-renderiza heatmap/ranking sobre o HTML inicial
 refreshAll();
+// filtro padrao = nao resolvidos: aplica ja na carga
+applyFilters();
 """
 
 
@@ -665,9 +667,9 @@ def write_html(rich: list[RichMatch], ts: datetime | None = None) -> Path:
 <div class="toolbar">
 <span><span class="tb-label">Dia:</span>{chips}</span>
 <span><span class="tb-label">Jogos:</span><span class="seg" id="seg-status">
-<button class="active" data-status="all">Todos</button>
+<button class="active" data-status="unresolved">Não resolvidos</button>
 <button data-status="resolved">Resolvidos</button>
-<button data-status="unresolved">Não resolvidos</button></span></span>
+<button data-status="all">Todos</button></span></span>
 <span><span class="tb-label">Ver:</span><span class="seg" id="seg-view">
 <button class="active" data-view="ep">Pontos esperados</button>
 <button data-view="prob">Probabilidade</button></span></span>
