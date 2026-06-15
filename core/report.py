@@ -33,7 +33,7 @@ from config import (
     OUTPUT_DIR,
 )
 from core.persistence import RELATORIOS_DIR, format_ts
-from core.processor import _lookup_h2h
+from core.processor import _lookup_h2h, _lookup_totals
 from core.schemas import RichMatch
 
 _TOP_SCORES = 6
@@ -45,6 +45,7 @@ _CSS = f"""
   --bg: #0e1117; --card: #181d27; --ink: #e8ebf1; --muted: #95a0b4;
   --line: #2a3140; --soft: #1f2531; --accent: #25b07f; --hl: #fbbf24;
   --home: #5187f5; --draw: #717c8f; --away: #ef5350;
+  --under: #5b9bd5; --over: #f0883e;
   --shadow: 0 1px 3px rgba(0, 0, 0, .5), 0 6px 20px rgba(0, 0, 0, .35);
   --shadow-hover: 0 4px 10px rgba(0, 0, 0, .55), 0 12px 30px rgba(0, 0, 0, .4);
 }}
@@ -116,6 +117,8 @@ header p {{ margin: 0; color: var(--muted); font-size: 13.5px; }}
 .pick-ep {{ color: var(--accent); font-size: 12px; font-weight: 600; margin-top: 2px; }}
 .bar1x2 {{ display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin: 14px 0 6px; }}
 .bar1x2 .h {{ background: var(--home); }} .bar1x2 .d {{ background: var(--draw); }} .bar1x2 .a {{ background: var(--away); }}
+.bar-ou {{ display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin: 2px 0 6px; }}
+.bar-ou .u {{ background: var(--under); }} .bar-ou .o {{ background: var(--over); }}
 .bar-labels {{ display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 14px; gap: 8px; }}
 .bar-labels b {{ color: var(--ink); }}
 .dot {{ display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: 1px; }}
@@ -535,6 +538,29 @@ def _top_scores(r: RichMatch) -> str:
     )
 
 
+def _under_over_bar(odd_over: float, odd_under: float) -> str:
+    """Barra Under/Over 2.5 a partir das odds capturadas (desvigorizadas).
+
+    Mesma quantidade que o modelo calibra (P(under 2.5)); aqui mostramos
+    direto o que veio do mercado de Gols Mais/Menos da bet365.
+    """
+    if not (odd_over and odd_under):
+        return ""
+    p_o, p_u = 1.0 / odd_over, 1.0 / odd_under
+    total = p_o + p_u
+    if total <= 0:
+        return ""
+    p_u, p_o = p_u / total, p_o / total
+    return (
+        '<div class="bar-ou">'
+        f'<div class="u" style="width:{p_u * 100:.1f}%"></div>'
+        f'<div class="o" style="width:{p_o * 100:.1f}%"></div></div>'
+        '<div class="bar-labels">'
+        f'<span><span class="dot" style="background:var(--under)"></span>Under 2.5 <b>{p_u * 100:.0f}%</b></span>'
+        f'<span><span class="dot" style="background:var(--over)"></span>Over 2.5 <b>{p_o * 100:.0f}%</b></span></div>'
+    )
+
+
 def _card(r: RichMatch, newest_capture: datetime | None = None) -> str:
     p = r.prediction
     home = html.escape(r.raw.home_team)
@@ -578,6 +604,9 @@ def _card(r: RichMatch, newest_capture: datetime | None = None) -> str:
         f'<span><span class="dot" style="background:var(--draw)"></span>Empate <b>{p.p_draw * 100:.0f}%</b></span>'
         f'<span><span class="dot" style="background:var(--away)"></span>{away} <b>{p.p_away * 100:.0f}%</b></span></div>'
     )
+    totals = r.raw.market("totals")
+    odd_over, odd_under = _lookup_totals(totals.outcomes) if totals else (0.0, 0.0)
+    bar += _under_over_bar(odd_over, odd_under)
     rho_str = f" · ρ <b>{p.rho:+.2f}</b>" if p.rho is not None else ""
     lams = (
         f'<div class="lams">Gols esperados (λ): {home} <b>{p.lambda_home:.2f}</b> · '
@@ -591,6 +620,8 @@ def _card(r: RichMatch, newest_capture: datetime | None = None) -> str:
         raw_odds = f"Odds 1X2: {odd_h:.2f} / {odd_d:.2f} / {odd_a:.2f}"
     else:
         raw_odds = "Odds 1X2: -"
+    if odd_over and odd_under:
+        raw_odds += f" · O/U 2.5: {odd_over:.2f} / {odd_under:.2f}"
     captured = f" · capturadas {cap.strftime('%d/%m %H:%M')}" if cap else ""
     odds_line = f'<div class="lams">{raw_odds}{captured}</div>'
     return (
