@@ -556,8 +556,8 @@ def _under_over_bar(odd_over: float, odd_under: float) -> str:
         f'<div class="u" style="width:{p_u * 100:.1f}%"></div>'
         f'<div class="o" style="width:{p_o * 100:.1f}%"></div></div>'
         '<div class="bar-labels">'
-        f'<span><span class="dot" style="background:var(--under)"></span>Under 2.5 <b>{p_u * 100:.0f}%</b></span>'
-        f'<span><span class="dot" style="background:var(--over)"></span>Over 2.5 <b>{p_o * 100:.0f}%</b></span></div>'
+        f'<span><span class="dot" style="background:var(--under)"></span>Under 2.5 <b>{p_u * 100:.1f}%</b></span>'
+        f'<span><span class="dot" style="background:var(--over)"></span>Over 2.5 <b>{p_o * 100:.1f}%</b></span></div>'
     )
 
 
@@ -600,9 +600,9 @@ def _card(r: RichMatch, newest_capture: datetime | None = None) -> str:
         f'<div class="d" style="width:{p.p_draw * 100:.1f}%"></div>'
         f'<div class="a" style="width:{p.p_away * 100:.1f}%"></div></div>'
         '<div class="bar-labels">'
-        f'<span><span class="dot" style="background:var(--home)"></span>{home} <b>{p.p_home * 100:.0f}%</b></span>'
-        f'<span><span class="dot" style="background:var(--draw)"></span>Empate <b>{p.p_draw * 100:.0f}%</b></span>'
-        f'<span><span class="dot" style="background:var(--away)"></span>{away} <b>{p.p_away * 100:.0f}%</b></span></div>'
+        f'<span><span class="dot" style="background:var(--home)"></span>{home} <b>{p.p_home * 100:.1f}%</b></span>'
+        f'<span><span class="dot" style="background:var(--draw)"></span>Empate <b>{p.p_draw * 100:.1f}%</b></span>'
+        f'<span><span class="dot" style="background:var(--away)"></span>{away} <b>{p.p_away * 100:.1f}%</b></span></div>'
     )
     totals = r.raw.market("totals")
     odd_over, odd_under = _lookup_totals(totals.outcomes) if totals else (0.0, 0.0)
