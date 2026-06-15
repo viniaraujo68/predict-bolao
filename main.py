@@ -51,13 +51,50 @@ def _generate_reports(matches: list[RawMatch], ts: datetime) -> tuple:
     return df, html_path, rich
 
 
+def _fetch_results(store: list[RawMatch]) -> int:
+    """Busca na ESPN os placares de jogos encerrados sem placar e grava em
+    resultados.json. Retorna quantos foram gravados. Resiliente: avisa e segue
+    em caso de falha de rede (nunca aborta), pra poder ser chamado dentro do
+    fluxo de extração sem derrubá-lo."""
+    targets = unresolved_past_matches(store, load_results(), datetime.now())
+    if not targets:
+        return 0
+
+    console.print(f"[dim]{len(targets)} jogos encerrados sem placar; consultando a ESPN...[/dim]")
+    pool = []
+    for date in dates_window(targets):
+        try:
+            pool.extend(fetch_scoreboard(date))
+        except Exception as e:
+            console.print(f"[yellow]  ! falha ao consultar {date}: {str(e).splitlines()[0]}[/yellow]")
+
+    if not pool:
+        console.print("[yellow]Não consegui nenhum dado da ESPN (sem rede ou API mudou).[/yellow]")
+        return 0
+
+    aplicados = 0
+    for m in targets:
+        score = match_event(m, pool)
+        if score is None:
+            console.print(f"[yellow]  ? sem placar na ESPN: {m.home_team} x {m.away_team}[/yellow]")
+            continue
+        set_result(m.match_id, score[0], score[1])
+        aplicados += 1
+        console.print(f"[green]  + {m.home_team} {score[0]} x {score[1]} {m.away_team}[/green]")
+
+    console.print(f"[green]{aplicados}/{len(targets)} placares gravados.[/green]")
+    return aplicados
+
+
 @app.command()
 def extract(
     debug_network: bool = typer.Option(False, "--debug-network", help="Salva todos os JSONs capturados em output/debug/."),
+    sem_resultados: bool = typer.Option(False, "--sem-resultados", help="Não busca placares na ESPN após a captura."),
 ) -> None:
     """Captura odds da bet365, salva snapshot + atualiza o store e gera palpites.
 
-    (Placares de jogos encerrados não vêm daqui — use `buscar-resultados`.)
+    Também busca na ESPN os placares de jogos já encerrados (use --sem-resultados
+    pra pular essa etapa).
     """
     scraper = Bet365Scraper(debug=debug_network)
     matches = scraper.capture_round()
@@ -79,6 +116,10 @@ def extract(
 
     # Relatorios sempre do store COMPLETO (nao so do snapshot recem-capturado).
     full = load_store()
+    # Ja busca placares dos jogos encerrados pra nao precisar rodar
+    # 'buscar-resultados' a parte (resiliente: se a ESPN falhar, segue).
+    if not sem_resultados:
+        _fetch_results(full)
     df, html_path, rich = _generate_reports(full, ts)
     console.print(f"[green]Relatório HTML em: {html_path}[/green]\n")
     _render_table(df)
@@ -217,34 +258,11 @@ def buscar_resultados() -> None:
         console.print("[red]Store vazio (output/odds_atuais.json). Rode 'python main.py extract' antes.[/red]")
         raise typer.Exit(code=1)
 
-    targets = unresolved_past_matches(store, load_results(), datetime.now())
-    if not targets:
+    if not unresolved_past_matches(store, load_results(), datetime.now()):
         console.print("[green]Nenhum jogo encerrado pendente de placar — tudo já resolvido.[/green]")
         return
 
-    console.print(f"[dim]{len(targets)} jogos encerrados sem placar; consultando a ESPN...[/dim]")
-    pool = []
-    for date in dates_window(targets):
-        try:
-            pool.extend(fetch_scoreboard(date))
-        except Exception as e:
-            console.print(f"[yellow]  ! falha ao consultar {date}: {str(e).splitlines()[0]}[/yellow]")
-
-    if not pool:
-        console.print("[red]Não consegui nenhum dado da ESPN (sem rede ou API mudou).[/red]")
-        raise typer.Exit(code=1)
-
-    aplicados = 0
-    for m in targets:
-        score = match_event(m, pool)
-        if score is None:
-            console.print(f"[yellow]  ? sem placar na ESPN: {m.home_team} x {m.away_team}[/yellow]")
-            continue
-        set_result(m.match_id, score[0], score[1])
-        aplicados += 1
-        console.print(f"[green]  + {m.home_team} {score[0]} x {score[1]} {m.away_team}[/green]")
-
-    console.print(f"[green]{aplicados}/{len(targets)} placares gravados.[/green]")
+    _fetch_results(store)
     _, html_path, rich = _generate_reports(load_store(), datetime.now())
     console.print(f"[green]Relatório HTML atualizado: {html_path}[/green]")
     _render_resolved(rich)
