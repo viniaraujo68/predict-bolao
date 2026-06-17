@@ -2,11 +2,11 @@
 aos jogos do store por NOME dos times (não precisa de id).
 
 A API (`site.api.espn.com/.../soccer/fifa.world/scoreboard?dates=YYYYMMDD`) com
-`lang=pt&region=br` devolve nomes em português, então o casamento é quase direto;
-uns poucos times têm grafia diferente da que o bet365 gravou no store e entram
-no mapa de apelidos abaixo. A orientação do placar (quem é casa) é resolvida pela
-IDENTIDADE dos times, não pela posição — bet365 e ESPN podem discordar de mando
-em jogos de sede neutra.
+`lang=en&region=us` devolve nomes em inglês, casando quase 1:1 com a grafia da
+bet365 (também em inglês); só sobram uns poucos nomes que a bet365 gravou em
+português, mais Congo/EUA, que entram no mapa de apelidos abaixo. A orientação do
+placar (quem é casa) é resolvida pela IDENTIDADE dos times, não pela posição —
+bet365 e ESPN podem discordar de mando em jogos de sede neutra.
 """
 
 from __future__ import annotations
@@ -21,44 +21,52 @@ from core.schemas import RawMatch
 
 ESPN_SCOREBOARD_URL = (
     "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/"
-    "scoreboard?dates={date}&lang=pt&region=br"
+    "scoreboard?dates={date}&lang=en&region=us"
 )
 
-# Grafias do store (bet365) que diferem da ESPN-PT -> forma canônica (a da ESPN).
+# Grafias do store (bet365) que diferem da ESPN-EN -> forma canônica (a da ESPN).
 # Chaves e valores são comparados já normalizados (sem acento, minúsculo).
+# O store é bilíngue (a bet365 gravou times ora em inglês, ora em português):
+# os nomes em inglês casam direto com a ESPN-EN; mapeamos aqui os restos em
+# português, mais Congo (ESPN usa "Congo DR") e EUA.
 _ALIASES = {
-    "qatar": "catar",
-    "paraguay": "paraguai",
-    "tchequia": "republica tcheca",
-    "paises baixos": "holanda",
-    "republica da coreia": "coreia do sul",
-    # bet365 às vezes grava o nome em inglês; ESPN-PT devolve em português.
-    "algeria": "argelia",
-    "usa": "estados unidos",
-    "eua": "estados unidos",
-    "belgium": "belgica",
-    "brazil": "brasil",
-    "cape verde": "cabo verde",
-    "dr congo": "republica democratica do congo",
-    "rd congo": "republica democratica do congo",
-    "egypt": "egito",
-    "england": "inglaterra",
-    "france": "franca",
-    "germany": "alemanha",
-    "ivory coast": "costa do marfim",
-    "morocco": "marrocos",
-    "netherlands": "holanda",
-    "new zealand": "nova zelandia",
-    "norway": "noruega",
-    "saudi arabia": "arabia saudita",
-    "scotland": "escocia",
-    "south africa": "africa do sul",
-    "south korea": "coreia do sul",
-    "spain": "espanha",
-    "sweden": "suecia",
-    "switzerland": "suica",
-    "turkey": "turquia",
-    "turkiye": "turquia",
+    # Congo / EUA
+    "dr congo": "congo dr",
+    "rd congo": "congo dr",
+    "usa": "united states",
+    "eua": "united states",
+    # português -> inglês (grafia da ESPN-EN)
+    "africa do sul": "south africa",
+    "alemanha": "germany",
+    "arabia saudita": "saudi arabia",
+    "argelia": "algeria",
+    "belgica": "belgium",
+    "brasil": "brazil",
+    "cabo verde": "cape verde",
+    "coreia do sul": "south korea",
+    "costa do marfim": "ivory coast",
+    "croacia": "croatia",
+    "egito": "egypt",
+    "equador": "ecuador",
+    "escocia": "scotland",
+    "espanha": "spain",
+    "franca": "france",
+    "gana": "ghana",
+    "inglaterra": "england",
+    "ira": "iran",
+    "iraque": "iraq",
+    "japao": "japan",
+    "jordania": "jordan",
+    "marrocos": "morocco",
+    "noruega": "norway",
+    "nova zelandia": "new zealand",
+    "paises baixos": "netherlands",
+    "suecia": "sweden",
+    "suica": "switzerland",
+    "tchequia": "czechia",
+    "turquia": "turkiye",
+    "uruguai": "uruguay",
+    "uzbequistao": "uzbekistan",
 }
 
 
