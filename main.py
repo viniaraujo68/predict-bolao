@@ -117,7 +117,7 @@ def extract(
     # Relatorios sempre do store COMPLETO (nao so do snapshot recem-capturado).
     full = load_store()
     # Ja busca placares dos jogos encerrados pra nao precisar rodar
-    # 'buscar-resultados' a parte (resiliente: se a ESPN falhar, segue).
+    # 'results' a parte (resiliente: se a ESPN falhar, segue).
     if not sem_resultados:
         _fetch_results(full)
     df, html_path, rich = _generate_reports(full, ts)
@@ -248,8 +248,8 @@ def _render_resolved(rich: list[RichMatch]) -> None:
     )
 
 
-@app.command(name="buscar-resultados")
-def buscar_resultados() -> None:
+@app.command(name="results")
+def results() -> None:
     """Busca na ESPN (por data) o placar final dos jogos já encerrados sem placar
     e grava em resultados.json — casa por nome dos times, sem precisar de id nem
     do browser. Não sobrescreve placares já existentes."""
