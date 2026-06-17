@@ -28,6 +28,7 @@ ESPN_SCOREBOARD_URL = (
 # Chaves e valores são comparados já normalizados (sem acento, minúsculo).
 _ALIASES = {
     "qatar": "catar",
+    "algeria": "argelia",
     "usa": "estados unidos",
     "eua": "estados unidos",
     "paraguay": "paraguai",
@@ -127,7 +128,7 @@ def unresolved_past_matches(
     now: datetime,
 ) -> list[RawMatch]:
     """Jogos ja comecados/encerrados (match_date < now) que ainda nao tem placar
-    coletado, ordenados por data. Sao os alvos de `buscar-resultados`."""
+    coletado, ordenados por data. Sao os alvos de `results`."""
     targets = [
         m for m in matches
         if m.match_date and m.match_date < now and m.match_id not in results

@@ -96,7 +96,7 @@ python main.py play output/capturas/2026-06-12_15h30.json     # de um snapshot e
 **4. Preencher os placares dos jogos encerrados (ESPN):**
 
 ```bash
-python main.py buscar-resultados
+python main.py results
 ```
 
 Pega do store os jogos **já encerrados e ainda sem placar**, consulta o
@@ -116,7 +116,7 @@ longo da Copa. No HTML o total recalcula ao vivo conforme você edita as regras 
 pontuação, e a célula do placar real fica marcada no heatmap.
 
 > O `extract` (bet365) cuida só das **odds** — não coleta placar. A fonte de
-> resultados é a ESPN (`buscar-resultados`); tentamos puxar pelo bet365 e ficou
+> resultados é a ESPN (`results`); tentamos puxar pelo bet365 e ficou
 > comprovado que a SPA não serve jogos encerrados por id.
 
 **Flags úteis:**
