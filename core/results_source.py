@@ -2,96 +2,32 @@
 aos jogos do store por NOME dos times (não precisa de id).
 
 A API (`site.api.espn.com/.../soccer/fifa.world/scoreboard?dates=YYYYMMDD`) com
-`lang=en&region=us` devolve nomes em inglês, casando quase 1:1 com a grafia da
-bet365 (também em inglês); só sobram uns poucos nomes que a bet365 gravou em
-português, mais Congo/EUA, que entram no mapa de apelidos abaixo. A orientação do
-placar (quem é casa) é resolvida pela IDENTIDADE dos times, não pela posição —
+`lang=pt&region=br` devolve nomes em português. Tanto eles quanto os nomes do
+store (bet365) passam por `canonical_team` (core/teams.py), então o casamento é
+igualdade exata do nome canônico — sem heurística de similaridade. A orientação
+do placar (quem é casa) é resolvida pela IDENTIDADE dos times, não pela posição —
 bet365 e ESPN podem discordar de mando em jogos de sede neutra.
 """
 
 from __future__ import annotations
 
 import json
-import unicodedata
 import urllib.request
 from datetime import datetime, timedelta
-from difflib import SequenceMatcher
 
 from core.schemas import RawMatch
+from core.teams import canonical_team
 
 ESPN_SCOREBOARD_URL = (
     "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/"
-    "scoreboard?dates={date}&lang=en&region=us"
+    "scoreboard?dates={date}&lang=pt&region=br"
 )
-
-# Grafias do store (bet365) que diferem da ESPN-EN -> forma canônica (a da ESPN).
-# Chaves e valores são comparados já normalizados (sem acento, minúsculo).
-# O store é bilíngue (a bet365 gravou times ora em inglês, ora em português):
-# os nomes em inglês casam direto com a ESPN-EN; mapeamos aqui os restos em
-# português, mais Congo (ESPN usa "Congo DR") e EUA.
-_ALIASES = {
-    # Congo / EUA
-    "dr congo": "congo dr",
-    "rd congo": "congo dr",
-    "usa": "united states",
-    "eua": "united states",
-    # português -> inglês (grafia da ESPN-EN)
-    "africa do sul": "south africa",
-    "alemanha": "germany",
-    "arabia saudita": "saudi arabia",
-    "argelia": "algeria",
-    "belgica": "belgium",
-    "brasil": "brazil",
-    "cabo verde": "cape verde",
-    "coreia do sul": "south korea",
-    "costa do marfim": "ivory coast",
-    "croacia": "croatia",
-    "egito": "egypt",
-    "equador": "ecuador",
-    "escocia": "scotland",
-    "espanha": "spain",
-    "franca": "france",
-    "gana": "ghana",
-    "inglaterra": "england",
-    "ira": "iran",
-    "iraque": "iraq",
-    "japao": "japan",
-    "jordania": "jordan",
-    "marrocos": "morocco",
-    "noruega": "norway",
-    "nova zelandia": "new zealand",
-    "paises baixos": "netherlands",
-    "suecia": "sweden",
-    "suica": "switzerland",
-    "tchequia": "czechia",
-    "turquia": "turkiye",
-    "uruguai": "uruguay",
-    "uzbequistao": "uzbekistan",
-}
-
-
-def _norm(s: str) -> str:
-    s = unicodedata.normalize("NFKD", s or "")
-    s = "".join(c for c in s if not unicodedata.combining(c))
-    s = s.lower().replace("-", " ").replace(".", " ")
-    return " ".join(s.split())
-
-
-def _canon(name: str) -> str:
-    n = _norm(name)
-    return _ALIASES.get(n, n)
 
 
 def _same_team(a: str, b: str) -> bool:
-    """Mesmo time? canônico igual, OU tokens de um contidos no outro (Bósnia e
-    Herzegovina vs Bosnia-Herzegovina), OU alta similaridade de string."""
-    ca, cb = _canon(a), _canon(b)
-    if ca == cb:
-        return True
-    ta, tb = set(ca.split()), set(cb.split())
-    if ta and tb and (ta <= tb or tb <= ta):
-        return True
-    return SequenceMatcher(None, ca, cb).ratio() >= 0.84
+    """Mesmo time? Compara o nome canônico (core/teams.py) — bet365 e ESPN
+    convergem pra mesma grafia, então basta igualdade exata."""
+    return canonical_team(a) == canonical_team(b)
 
 
 class EspnEvent:

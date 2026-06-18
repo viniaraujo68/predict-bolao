@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from core.teams import canonical_team
 
 
 MarketKind = Literal["h2h", "totals", "correct_score"]
@@ -24,6 +26,13 @@ class RawMatch(BaseModel):
     away_team: str
     captured_at: datetime | None = None  # momento em que estas odds foram capturadas
     markets: dict[MarketKind, Market] = Field(default_factory=dict)
+
+    @field_validator("home_team", "away_team", mode="before")
+    @classmethod
+    def _canonicalize_team(cls, v: str) -> str:
+        # Padroniza a grafia (bet365 grava ora em inglês, ora em português) pra
+        # casar 1:1 com a ESPN. Ver core/teams.py.
+        return canonical_team(v) if isinstance(v, str) else v
 
     def market(self, kind: MarketKind) -> Market | None:
         return self.markets.get(kind)
