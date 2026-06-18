@@ -100,14 +100,16 @@ python main.py results
 ```
 
 Pega do store os jogos **já encerrados e ainda sem placar**, consulta o
-scoreboard público da ESPN (`fifa.world`, em inglês) nas datas deles e grava
+scoreboard público da ESPN (`fifa.world`, em português) nas datas deles e grava
 o placar final em `output/resultados.json` — **casando por nome dos times + data,
 sem precisar de id nem do browser**, e orientando o placar pela identidade dos
 times (bet365 e ESPN podem discordar de mando em sede neutra). Jogos que já têm
-placar são ignorados (não reconsulta a ESPN). A grafia da ESPN-EN casa quase 1:1
-com a da bet365; os poucos restos que a bet365 gravou em português (Brasil/Brazil,
-Tchéquia/Czechia, …), além de Congo e EUA, estão no mapa de apelidos em
-`core/results_source.py`.
+placar são ignorados (não reconsulta a ESPN). Tanto o store (bet365) quanto a
+ESPN passam o nome de cada time por `canonical_team` (`core/teams.py`), que tem o
+nome canônico (português) e os apelidos de cada seleção — a bet365 grava ora em
+inglês, ora em português, e tudo converge pra mesma grafia, então o casamento é
+**igualdade exata**, sem heurística de similaridade. Para incluir um time novo ou
+uma grafia nova, basta editar `core/teams.py`.
 
 Os placares ficam em `output/resultados.json`, separados das odds (uma nova
 captura nunca apaga um resultado). Com eles, o relatório (terminal e HTML) passa
