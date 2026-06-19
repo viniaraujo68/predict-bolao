@@ -455,13 +455,121 @@ class Bet365Scraper:
                 return ev_id, state
         return None, None
 
-    FIXTURE_CARD_SELECTOR = ".rcl-ParticipantFixtureDetails-clickable"
+    # bet365 migrou os cards da overview de `rcl-ParticipantFixtureDetails-clickable`
+    # para `cpm-ParticipantFixtureDetails` (jun/2026). Casamos os dois pra
+    # resiliencia: o novo primeiro, o legado como fallback.
+    FIXTURE_CARD_SELECTOR = (
+        ".cpm-ParticipantFixtureDetails, .rcl-ParticipantFixtureDetails-clickable"
+    )
+    # Nomes dos times dentro de um card (idem: novo cpm + legado rcl).
+    CARD_TEAM_NAME_SELECTOR = (
+        ".cpm-ParticipantFixtureDetails_Team, .rcl-ParticipantFixtureDetailsTeam_TeamName"
+    )
+
+    # Em jun/2026 a bet365 migrou a overview da Copa pra um coupon React novo
+    # (`wc-CouponPageReactResponsive`) com classes CSS OFUSCADAS que rotacionam
+    # a cada deploy (ex: .rrc-7, .ycl-0d8f06) — nao da pra fixar seletor de card.
+    # Detectamos as linhas de jogo ESTRUTURALMENTE: dentro do PageViewMain, um
+    # <div> minimal cujo texto tem uma hora HH:MM e termina em 3 odds decimais
+    # (1X2). Os nomes dos times saem dos leafs alfabeticos da linha.
+    COUPON_MAIN_SELECTOR = ".wc-CouponPageReactResponsive_PageViewMain"
+    _COUPON_FIXTURES_JS = r"""
+    () => {
+        const main = document.querySelector('.wc-CouponPageReactResponsive_PageViewMain') || document.body;
+        const oddTail = /(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s*$/;
+        const hasTime = /\b\d{1,2}:\d{2}\b/;
+        const out = [];
+        for (const el of main.querySelectorAll('div')) {
+            const t = (el.innerText || '').trim();
+            if (!t || t.length > 90 || !hasTime.test(t) || !oddTail.test(t)) continue;
+            // minimal: nenhum filho direto casa o mesmo padrao (pega a linha, nao o container)
+            let childMatches = false;
+            for (const ch of el.children) {
+                const ct = (ch.innerText || '').trim();
+                if (hasTime.test(ct) && oddTail.test(ct)) { childMatches = true; break; }
+            }
+            if (childMatches) continue;
+            const names = [];
+            for (const e of el.querySelectorAll('*')) {
+                if (e.children.length) continue;  // so leaf
+                const lt = (e.textContent || '').trim();
+                if (/^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ .'-]*$/.test(lt) && lt.length >= 3) names.push(lt);
+            }
+            out.push({home: names[0] || null, away: names[1] || null});
+        }
+        return out;
+    }
+    """
+
+    def _coupon_fixtures(self, page) -> list[tuple[str, str]]:
+        """Lista (mandante, visitante) das linhas do coupon React novo.
+
+        Retorna [] se a pagina nao for o coupon novo (ou nao tiver linhas).
+        """
+        try:
+            rows = page.evaluate(self._COUPON_FIXTURES_JS)
+        except Exception:
+            return []
+        out: list[tuple[str, str]] = []
+        for r in rows or []:
+            home, away = (r.get("home"), r.get("away"))
+            if home and away:
+                out.append((home.strip(), away.strip()))
+        return out
 
     def _count_fixture_cards(self, page) -> int:
+        n = 0
         try:
-            return page.locator(self.FIXTURE_CARD_SELECTOR).count()
+            n = page.locator(self.FIXTURE_CARD_SELECTOR).count()
         except Exception:
-            return 0
+            n = 0
+        if n > 0:
+            return n
+        # Sem cards classicos: tenta o coupon React novo (classes ofuscadas).
+        return len(self._coupon_fixtures(page))
+
+    def _overview_fixtures(self, page) -> list[tuple[str | None, str | None]]:
+        """Lista ordenada de (mandante, visitante) da overview, nos dois modos:
+        cards classicos (cpm/rcl) ou coupon React novo (estrutural)."""
+        try:
+            n = page.locator(self.FIXTURE_CARD_SELECTOR).count()
+        except Exception:
+            n = 0
+        if n > 0:
+            return [self._card_team_names(page, i) for i in range(n)]
+        return list(self._coupon_fixtures(page))
+
+    def _click_fixture(
+        self, page, i: int, fixture: tuple[str | None, str | None] | None,
+    ) -> bool:
+        """Abre a partida i: clica o card classico (.nth(i)) ou, no coupon novo,
+        clica o nome do mandante (scoped no PageViewMain pra evitar a sidebar)."""
+        try:
+            cards = page.locator(self.FIXTURE_CARD_SELECTOR)
+            if cards.count() > i:
+                card = cards.nth(i)
+                card.scroll_into_view_if_needed(timeout=5000)
+                card.click(timeout=8000)
+                return True
+        except Exception as e:
+            print(f"      ! clique (card) falhou: {str(e).splitlines()[0]}")
+            return False
+        # Coupon novo: clica o nome do mandante.
+        home = fixture[0] if fixture else None
+        if not home:
+            print("      ! sem nome do mandante pra clicar no coupon novo.")
+            return False
+        try:
+            main = page.locator(self.COUPON_MAIN_SELECTOR)
+            tgt = main.get_by_text(home, exact=True)
+            if tgt.count() == 0:
+                tgt = page.get_by_text(home, exact=True)
+            tgt.first.scroll_into_view_if_needed(timeout=5000)
+            tgt.first.click(timeout=8000)
+            return True
+        except Exception as e:
+            print(f"      ! clique (coupon {home!r}) falhou: {str(e).splitlines()[0]}")
+            return False
 
     def _pick_match_page(self, default_page):
         """Encontra a aba aberta na pagina de uma partida (/E<id>/).
@@ -485,7 +593,7 @@ class Bet365Scraper:
     def _card_team_names(self, page, index: int) -> tuple[str | None, str | None]:
         try:
             card = page.locator(self.FIXTURE_CARD_SELECTOR).nth(index)
-            names = card.locator(".rcl-ParticipantFixtureDetailsTeam_TeamName").all_text_contents()
+            names = card.locator(self.CARD_TEAM_NAME_SELECTOR).all_text_contents()
             names = [n.strip() for n in names if n.strip()]
             if len(names) >= 2:
                 return names[0], names[1]
@@ -529,13 +637,20 @@ class Bet365Scraper:
     def _auto_capture_round(self, page, limit: int | None = None) -> None:
         """Sequencial: clica card → espera odds → captura → volta pra overview."""
         overview_url = page.url
-        total_overview = self._count_fixture_cards(page)
+        # O coupon React novo as vezes demora a renderizar as linhas; espera um
+        # pouco antes de declarar a pagina vazia.
+        self._wait_for_cards(page, min_cards=1, timeout_s=15.0)
+        # Snapshot ordenado dos jogos da overview (cards classicos OU coupon novo).
+        # Os nomes guiam tanto o label quanto o clique (no coupon novo clicamos
+        # pelo nome do mandante, ja que as classes CSS sao ofuscadas).
+        fixtures = self._overview_fixtures(page)
+        total_overview = len(fixtures)
         total_cards = total_overview
         if limit:
             total_cards = min(total_cards, limit)
         if total_cards == 0:
             print("  ! nenhum card de partida encontrado nessa pagina.")
-            print("    Esperado: elementos com classe '.rcl-ParticipantFixtureDetails-clickable'.")
+            print(f"    Esperado: elementos com seletor '{self.FIXTURE_CARD_SELECTOR}'.")
             if self.debug:
                 try:
                     html = page.content()
@@ -565,7 +680,7 @@ class Bet365Scraper:
                 print(f"      Auto interrompido em {i} partidas; rode 'auto' de novo pra continuar.")
                 break
 
-            label_a, label_b = self._card_team_names(page, i)
+            label_a, label_b = fixtures[i] if i < len(fixtures) else (None, None)
             label = f"{label_a} v {label_b}" if label_a and label_b else f"card #{i+1}"
             print(f"    [{i+1}/{total_cards}] {label}")
 
@@ -574,7 +689,8 @@ class Bet365Scraper:
             # overview e clica no card de novo (navegacao interna renderiza).
             loaded, ev_id = False, None
             for attempt, wait_ms in ((1, 12000), (2, 25000)):
-                loaded, ev_id = self._open_card_and_wait(page, i, overview_url, min_cards, wait_ms)
+                loaded, ev_id = self._open_card_and_wait(
+                    page, i, (label_a, label_b), overview_url, min_cards, wait_ms)
                 if loaded:
                     break
                 self._recover_overview(page, min_cards)
@@ -616,18 +732,14 @@ class Bet365Scraper:
         print(f"  ~ auto concluida: {captured} novas, {skipped} repetidas/puladas, {failed} falharam.")
 
     def _open_card_and_wait(
-        self, page, i: int, overview_url: str, min_cards: int, wait_ms: int,
+        self, page, i: int, fixture: tuple[str | None, str | None] | None,
+        overview_url: str, min_cards: int, wait_ms: int,
     ) -> tuple[bool, str | None]:
-        """Garante a overview, clica o card i e espera as odds renderizarem."""
+        """Garante a overview, abre a partida i e espera as odds renderizarem."""
         if self._count_fixture_cards(page) <= i and not \
                 self._recover_overview(page, min_cards):
             return False, None
-        try:
-            card = page.locator(self.FIXTURE_CARD_SELECTOR).nth(i)
-            card.scroll_into_view_if_needed(timeout=5000)
-            card.click(timeout=8000)
-        except Exception as e:
-            print(f"      ! clique falhou: {str(e).splitlines()[0]}")
+        if not self._click_fixture(page, i, fixture):
             return False, None
         # A URL da overview tambem tem /E<id>/ (o id do campeonato) — espera
         # ate o event id ser OUTRO, senao um clique sem efeito passa batido.
