@@ -88,7 +88,15 @@ def _safe_float(s: str | None) -> float | None:
 
 
 def _market_name(group) -> str:
-    text = group.select_one(".cm-MarketGroupWithIconsButton_Text")
+    # bet365 usa duas classes de titulo de pod conforme o layout do mercado:
+    # `.cm-MarketGroupWithIconsButton_Text` (mercados com icones) e
+    # `.sc-MarketGroupButtonWithStats_Text` (pods novos com stats, ex: o
+    # "Goals Over/Under" da Copa em jun/2026). Sem a segunda, o totals nao era
+    # reconhecido e o jogo saia so com h2h.
+    text = (
+        group.select_one(".cm-MarketGroupWithIconsButton_Text")
+        or group.select_one(".sc-MarketGroupButtonWithStats_Text")
+    )
     return text.get_text(strip=True) if text else ""
 
 
