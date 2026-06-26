@@ -293,6 +293,71 @@ def _extract_totals(group, target_line: float = 2.5) -> Market | None:
     )
 
 
+# Pares (seletor-de-nome, seletor-de-odd) por participante, em ordem de
+# preferencia. O layout real do pod "Both Teams to Score" da Copa usa
+# `.gl-ParticipantBorderless_*`; os demais sao variantes ja vistas noutros pods.
+_BTTS_PARTICIPANT_SELECTORS = (
+    (".gl-ParticipantBorderless_Name", ".gl-ParticipantBorderless_Odds"),
+    (".srb-ParticipantResponsiveText_Name", ".srb-ParticipantResponsiveText_Odds"),
+    (".gl-Participant_Name", ".gl-Participant_Odds"),
+)
+
+
+def _extract_btts(group) -> Market | None:
+    """Extrai o mercado 'Ambos Marcam' (Sim/Não) -> Market kind=btts.
+
+    A bet365 renderiza esse pod com pares nome+odd (Yes/No ou Sim/Não). Tentamos
+    varios esquemas de classe (`_BTTS_PARTICIPANT_SELECTORS`) e, como ultimo
+    recurso, o layout colunar (header Sim/Não + odds soltas)."""
+    yes_keys = ("sim", "yes")
+    no_keys = ("não", "nao", "no")
+
+    def _classify(name: str) -> str | None:
+        n = name.strip().lower()
+        if n in yes_keys:
+            return "yes"
+        if n in no_keys:
+            return "no"
+        return None
+
+    yes_odd = no_odd = None
+
+    # Esquemas nome+odd em paralelo (listas casadas por ordem). Para no primeiro
+    # que produzir Sim e Não.
+    for name_sel, odd_sel in _BTTS_PARTICIPANT_SELECTORS:
+        names = [el.get_text(strip=True) for el in group.select(name_sel)]
+        odds = [_safe_float(el.get_text()) for el in group.select(odd_sel)]
+        for nm, odd in zip(names, odds):
+            slot = _classify(nm)
+            if slot == "yes" and odd:
+                yes_odd = yes_odd or odd
+            elif slot == "no" and odd:
+                no_odd = no_odd or odd
+        if yes_odd and no_odd:
+            break
+
+    # Layout colunar: headers (Sim/Não) + odds soltas.
+    if not (yes_odd and no_odd):
+        headers = [h.get_text(strip=True) for h in group.select(".gl-MarketColumnHeader")]
+        odds = [_safe_float(o.get_text()) for o in group.select(".gl-ParticipantOddsOnly_Odds")]
+        for label, odd in zip(headers, odds):
+            slot = _classify(label)
+            if slot == "yes" and odd:
+                yes_odd = yes_odd or odd
+            elif slot == "no" and odd:
+                no_odd = no_odd or odd
+
+    if not (yes_odd and no_odd):
+        return None
+    return Market(
+        kind="btts",
+        outcomes=[
+            Outcome(name="Sim", odd=yes_odd),
+            Outcome(name="Não", odd=no_odd),
+        ],
+    )
+
+
 H2H_GROUP_NAMES = {
     "Resultado Final",          # pt-BR
     "Match Result",             # en
@@ -314,12 +379,28 @@ TOTALS_GROUP_NAMES = {
 }
 
 
+BTTS_GROUP_NAMES = {
+    "Ambos Marcam",                 # pt-BR (bet365)
+    "Ambas as Equipes Marcam",
+    "Ambas Equipes Marcam",
+    "Os Dois Marcam",
+    "Both Teams to Score",          # en
+    "Both Teams To Score",
+    "Goal/No Goal",
+    "GG/NG",
+}
+
+
 def _is_h2h_group(name: str) -> bool:
     return name.strip() in H2H_GROUP_NAMES
 
 
 def _is_totals_group(name: str) -> bool:
     return name.strip() in TOTALS_GROUP_NAMES
+
+
+def _is_btts_group(name: str) -> bool:
+    return name.strip() in BTTS_GROUP_NAMES
 
 
 def extract_match_from_html(
@@ -361,6 +442,10 @@ def extract_match_from_html(
             m = _extract_totals(group, target_line=2.5)
             if m:
                 markets["totals"] = m
+        elif name and _is_btts_group(name) and "btts" not in markets:
+            m = _extract_btts(group)
+            if m:
+                markets["btts"] = m
 
     return RawMatch(
         match_id=event_id or f"{home}_vs_{away}".replace(" ", "_"),

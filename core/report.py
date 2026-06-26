@@ -34,7 +34,7 @@ from config import (
     bolao_weight,
 )
 from core.persistence import RELATORIOS_DIR, format_ts
-from core.processor import _lookup_h2h, _lookup_totals
+from core.processor import _lookup_btts, _lookup_h2h, _lookup_totals
 from core.schemas import RichMatch
 
 _TOP_SCORES = 6
@@ -47,6 +47,7 @@ _CSS = f"""
   --line: #2a3140; --soft: #1f2531; --accent: #25b07f; --hl: #fbbf24;
   --home: #5187f5; --draw: #717c8f; --away: #ef5350;
   --under: #5b9bd5; --over: #f0883e;
+  --btts-yes: #25b07f; --btts-no: #8b6fc9;
   --shadow: 0 1px 3px rgba(0, 0, 0, .5), 0 6px 20px rgba(0, 0, 0, .35);
   --shadow-hover: 0 4px 10px rgba(0, 0, 0, .55), 0 12px 30px rgba(0, 0, 0, .4);
 }}
@@ -126,6 +127,8 @@ header p {{ margin: 0; color: var(--muted); font-size: 13.5px; }}
 .bar1x2 .h {{ background: var(--home); }} .bar1x2 .d {{ background: var(--draw); }} .bar1x2 .a {{ background: var(--away); }}
 .bar-ou {{ display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin: 2px 0 6px; }}
 .bar-ou .u {{ background: var(--under); }} .bar-ou .o {{ background: var(--over); }}
+.bar-btts {{ display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin: 2px 0 6px; }}
+.bar-btts .y {{ background: var(--btts-yes); }} .bar-btts .n {{ background: var(--btts-no); }}
 .bar-labels {{ display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 14px; gap: 8px; }}
 .bar-labels b {{ color: var(--ink); }}
 .dot {{ display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: 1px; }}
@@ -572,6 +575,28 @@ def _under_over_bar(odd_over: float, odd_under: float) -> str:
     )
 
 
+def _btts_bar(odd_yes: float, odd_no: float) -> str:
+    """Barra Ambos Marcam (Sim/Não) a partir das odds capturadas (desvigorizadas).
+
+    Mostra direto o que veio do mercado 'Ambos Marcam' da bet365 — a mesma
+    quantidade que agora entra como alvo extra na calibracao do modelo."""
+    if not (odd_yes and odd_no):
+        return ""
+    p_y, p_n = 1.0 / odd_yes, 1.0 / odd_no
+    total = p_y + p_n
+    if total <= 0:
+        return ""
+    p_y, p_n = p_y / total, p_n / total
+    return (
+        '<div class="bar-btts">'
+        f'<div class="y" style="width:{p_y * 100:.1f}%"></div>'
+        f'<div class="n" style="width:{p_n * 100:.1f}%"></div></div>'
+        '<div class="bar-labels">'
+        f'<span><span class="dot" style="background:var(--btts-yes)"></span>Ambos marcam <b>{p_y * 100:.1f}%</b></span>'
+        f'<span><span class="dot" style="background:var(--btts-no)"></span>Não <b>{p_n * 100:.1f}%</b></span></div>'
+    )
+
+
 def _card(r: RichMatch, newest_capture: datetime | None = None) -> str:
     p = r.prediction
     home = html.escape(r.raw.home_team)
@@ -621,6 +646,9 @@ def _card(r: RichMatch, newest_capture: datetime | None = None) -> str:
     totals = r.raw.market("totals")
     odd_over, odd_under = _lookup_totals(totals.outcomes) if totals else (0.0, 0.0)
     bar += _under_over_bar(odd_over, odd_under)
+    btts = r.raw.market("btts")
+    odd_btts_yes, odd_btts_no = _lookup_btts(btts.outcomes) if btts else (0.0, 0.0)
+    bar += _btts_bar(odd_btts_yes, odd_btts_no)
     rho_str = f" · ρ <b>{p.rho:+.2f}</b>" if p.rho is not None else ""
     lams = (
         f'<div class="lams">Gols esperados (λ): {home} <b>{p.lambda_home:.2f}</b> · '
@@ -636,6 +664,8 @@ def _card(r: RichMatch, newest_capture: datetime | None = None) -> str:
         raw_odds = "Odds 1X2: -"
     if odd_over and odd_under:
         raw_odds += f" · O/U 2.5: {odd_over:.2f} / {odd_under:.2f}"
+    if odd_btts_yes and odd_btts_no:
+        raw_odds += f" · Ambos: {odd_btts_yes:.2f} / {odd_btts_no:.2f}"
     captured = f" · capturadas {cap.strftime('%d/%m %H:%M')}" if cap else ""
     odds_line = f'<div class="lams">{raw_odds}{captured}</div>'
     return (

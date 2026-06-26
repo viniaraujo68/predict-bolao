@@ -60,15 +60,32 @@ def _lookup_totals(outcomes: list[Outcome]) -> tuple[float, float]:
     return over, under
 
 
+def _lookup_btts(outcomes: list[Outcome]) -> tuple[float, float]:
+    """Retorna (sim, nao) do mercado 'ambos marcam'."""
+    yes = no = 0.0
+    for o in outcomes:
+        n = o.name.lower()
+        if "sim" in n or "yes" in n:
+            yes = yes or o.odd
+        elif "não" in n or "nao" in n or "no" in n:
+            no = no or o.odd
+    return yes, no
+
+
 def enrich(matches: list[RawMatch]) -> list[RichMatch]:
     rich = []
     for m in matches:
         h2h = m.market("h2h")
         totals = m.market("totals")
+        btts = m.market("btts")
         odd_h, odd_d, odd_a = _lookup_h2h(h2h.outcomes) if h2h else (0.0, 0.0, 0.0)
         odd_over, odd_under = _lookup_totals(totals.outcomes) if totals else (0.0, 0.0)
+        odd_btts_yes, odd_btts_no = _lookup_btts(btts.outcomes) if btts else (0.0, 0.0)
 
-        pred = consolidate(odd_h, odd_d, odd_a, odd_over, odd_under)
+        pred = consolidate(
+            odd_h, odd_d, odd_a, odd_over, odd_under,
+            odd_btts_yes=odd_btts_yes or None, odd_btts_no=odd_btts_no or None,
+        )
         rich.append(RichMatch(raw=m, prediction=pred))
     return rich
 

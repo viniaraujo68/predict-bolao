@@ -176,6 +176,8 @@ def _name_from_order(market: ParsedMarket, order: int | None) -> str:
 # Códigos MA= conhecidos da bet365 (mais confiável que match por nome)
 H2H_CODES = {"1777"}
 TOTALS_CODES = {"10124", "10552"}
+# Codigos MA= de 'Ambos Marcam' (Sim/Não) vistos nos frames da Copa (jun/2026).
+BTTS_CODES = {"10565", "50596"}
 CORRECT_SCORE_CODES = set()  # ainda desconhecido — capturar de exemplo real
 
 # Match por substring no nome (fallback / complemento)
@@ -195,6 +197,12 @@ CORRECT_SCORE_NAME_KEYS = (
     "Correct Score",
     "Resultado Exato",
 )
+BTTS_NAME_KEYS = (
+    "Ambos Marcam",
+    "Ambas as Equipes Marcam",
+    "Ambas Equipes Marcam",
+    "Both Teams to Score",
+)
 
 
 def classify_market_kind(market_or_name, code: str | None = None) -> str | None:
@@ -213,11 +221,15 @@ def classify_market_kind(market_or_name, code: str | None = None) -> str | None:
             return "h2h"
         if code in TOTALS_CODES:
             return "totals"
+        if code in BTTS_CODES:
+            return "btts"
         if code in CORRECT_SCORE_CODES:
             return "correct_score"
     n = name.strip()
     if any(k in n for k in H2H_NAME_KEYS):
         return "h2h"
+    if any(k in n for k in BTTS_NAME_KEYS):
+        return "btts"
     if any(k in n for k in CORRECT_SCORE_NAME_KEYS):
         return "correct_score"
     if any(k in n for k in TOTALS_NAME_KEYS):

@@ -419,9 +419,14 @@ class Bet365Scraper:
     def _markets_from_state(self, state: dict) -> dict[str, Market]:
         out: dict[str, Market] = {}
         for kind, pm in state.get("markets", {}).items():
-            mkt = _ws_h2h_market(pm) if kind == "h2h" else (
-                _ws_totals_market(pm) if kind == "totals" else None
-            )
+            if kind == "h2h":
+                mkt = _ws_h2h_market(pm)
+            elif kind == "totals":
+                mkt = _ws_totals_market(pm)
+            elif kind == "btts":
+                mkt = _ws_btts_market(pm)
+            else:
+                mkt = None
             if mkt:
                 out[kind] = mkt
         return out
@@ -993,5 +998,34 @@ def _ws_totals_market(pm: ParsedMarket, line: float = 2.5) -> Market | None:
                 Outcome(name=f"Mais de {line_str}", odd=over),
                 Outcome(name=f"Menos de {line_str}", odd=under),
             ],
+        )
+    return None
+
+
+def _ws_btts_market(pm: ParsedMarket) -> Market | None:
+    """Constroi um Market btts (Sim/Não) de um ParsedMarket de WS (Ambos Marcam).
+
+    Casa por nome do outcome (Sim/Yes, Não/No) e, em ultimo caso, pela ordem
+    (0=Sim, 1=Não — convencao da bet365)."""
+    yes = no = None
+    leftover: list[float] = []
+    for o in pm.outcomes:
+        if not (o.odd and o.odd > 1.0):
+            continue
+        nm = o.name.strip().lower()
+        if nm in ("sim", "yes"):
+            yes = yes or o.odd
+        elif nm in ("não", "nao", "no"):
+            no = no or o.odd
+        else:
+            leftover.append(o.odd)
+    if (yes is None or no is None) and len(leftover) >= 2:
+        # PA sem NA reconhecivel: usa a ordem (Sim primeiro, Não depois).
+        yes = yes or leftover[0]
+        no = no or leftover[1]
+    if yes and no:
+        return Market(
+            kind="btts",
+            outcomes=[Outcome(name="Sim", odd=yes), Outcome(name="Não", odd=no)],
         )
     return None

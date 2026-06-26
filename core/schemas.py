@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 from core.teams import canonical_team
 
 
-MarketKind = Literal["h2h", "totals", "correct_score"]
+MarketKind = Literal["h2h", "totals", "correct_score", "btts"]
 
 
 class Outcome(BaseModel):

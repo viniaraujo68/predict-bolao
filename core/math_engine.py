@@ -53,6 +53,15 @@ def _fair_under(odd_over: float, odd_under: float) -> float:
     return p_u / total
 
 
+def _fair_btts(odd_yes: float, odd_no: float) -> float:
+    """Probabilidade justa de 'ambos marcam = sim' (overround removido)."""
+    p_y, p_n = _safe_inv(odd_yes), _safe_inv(odd_no)
+    total = p_y + p_n
+    if total <= 0 or not (p_y and p_n):
+        raise ValueError("odds btts inválidas")
+    return p_y / total
+
+
 def _solve_lambda_total(p_under_2_5: float) -> float:
     """Encontra λ tal que P(Gols ≤ 2 | Poisson(λ)) == p_under_2_5."""
     p_clamped = min(max(p_under_2_5, 1e-6), 1 - 1e-6)
@@ -113,6 +122,15 @@ def matrix_under_2_5(matrix: np.ndarray) -> float:
     return float(matrix[total_goals <= 2].sum() / matrix.sum())
 
 
+def matrix_btts(matrix: np.ndarray) -> float:
+    """P(ambos marcam) = P(home>=1 e away>=1) da matriz P(i, j)."""
+    total = matrix.sum()
+    if total <= 0:
+        return 0.0
+    # Massa onde i>=1 E j>=1 (exclui linha 0 e coluna 0).
+    return float(matrix[1:, 1:].sum() / total)
+
+
 def estimate_lambdas(
     odd_home: float,
     odd_draw: float,
@@ -141,12 +159,19 @@ def fit_lambdas(
     odd_over_2_5: float,
     odd_under_2_5: float,
     rho: float = DIXON_COLES_RHO,
+    odd_btts_yes: float | None = None,
+    odd_btts_no: float | None = None,
 ) -> tuple[float, float, float] | None:
     """Ajusta (λ_H, λ_A, ρ) para a matriz DC reproduzir o 1X2 e o under 2.5.
 
     Quatro alvos (p_H, p_D, p_A, p_under) e tres graus de liberdade
     (log λ_H, log λ_A, ρ) — minimos quadrados via Nelder-Mead. Com o ρ livre
     o ajuste zera o erro nos quatro alvos. `rho` aqui e so o chute inicial.
+
+    Se as odds de 'ambos marcam' (Sim/Não) forem passadas, p_btts entra como
+    quinto alvo — agora sao 5 alvos pra 3 graus de liberdade, entao o ajuste
+    vira um compromisso por minimos quadrados (o BTTS informa a correlacao /
+    forma conjunta). Sem essas odds o comportamento e identico ao anterior.
     Retorna (λ_H, λ_A, ρ) ou None se odds invalidas.
     """
     try:
@@ -154,6 +179,14 @@ def fit_lambdas(
         p_under = _fair_under(odd_over_2_5, odd_under_2_5)
     except ValueError:
         return None
+
+    # Alvo opcional: ambos marcam. Odds invalidas -> ignora (nao quebra o ajuste).
+    p_btts: float | None = None
+    if odd_btts_yes and odd_btts_no:
+        try:
+            p_btts = _fair_btts(odd_btts_yes, odd_btts_no)
+        except ValueError:
+            p_btts = None
 
     heur = estimate_lambdas(odd_home, odd_draw, odd_away, odd_over_2_5, odd_under_2_5)
     lo, hi = POISSON_LAMBDA_BOUNDS
@@ -164,12 +197,15 @@ def fit_lambdas(
         m = dixon_coles_matrix(lam_h, lam_a, x[2])
         m_h, m_d, m_a = matrix_1x2(m)
         m_under = matrix_under_2_5(m)
-        return (
+        err = (
             (m_h - p_h) ** 2
             + (m_d - p_d) ** 2
             + (m_a - p_a) ** 2
             + (m_under - p_under) ** 2
         )
+        if p_btts is not None:
+            err += (matrix_btts(m) - p_btts) ** 2
+        return err
 
     res = minimize(
         loss, x0, method="Nelder-Mead",
@@ -267,9 +303,18 @@ def consolidate(
     odd_away: float | None,
     odd_over_2_5: float | None,
     odd_under_2_5: float | None,
+    odd_btts_yes: float | None = None,
+    odd_btts_no: float | None = None,
 ) -> ConsolidatedPrediction:
-    """Pipeline completo: calibra Dixon-Coles e maximiza E[pontos do bolão]."""
-    lams = fit_lambdas(odd_home, odd_draw, odd_away, odd_over_2_5, odd_under_2_5)
+    """Pipeline completo: calibra Dixon-Coles e maximiza E[pontos do bolão].
+
+    `odd_btts_yes`/`odd_btts_no` (ambos marcam) sao opcionais: quando presentes,
+    entram como alvo extra na calibracao. Ausentes -> resultado identico ao de
+    antes (jogos antigos / sem essa odd nao mudam)."""
+    lams = fit_lambdas(
+        odd_home, odd_draw, odd_away, odd_over_2_5, odd_under_2_5,
+        odd_btts_yes=odd_btts_yes, odd_btts_no=odd_btts_no,
+    )
     if lams is None:
         return ConsolidatedPrediction()
     lam_h, lam_a, rho = lams
