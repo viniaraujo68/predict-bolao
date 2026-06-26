@@ -31,6 +31,7 @@ from config import (
     BOLAO_BONUS_LOSER_SCORE,
     BOLAO_BONUS_WINNER_SCORE,
     OUTPUT_DIR,
+    bolao_weight,
 )
 from core.persistence import RELATORIOS_DIR, format_ts
 from core.processor import _lookup_h2h, _lookup_totals
@@ -105,6 +106,12 @@ header p {{ margin: 0; color: var(--muted); font-size: 13.5px; }}
 .card-head h2 {{ margin: 0; font-size: 17px; line-height: 1.3; letter-spacing: -.01em; }}
 .card-head .vs {{ color: var(--muted); font-weight: 400; padding: 0 2px; }}
 .when {{ color: var(--muted); font-size: 12.5px; margin-top: 3px; }}
+.wmult {{
+  display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; vertical-align: 1px;
+  background: color-mix(in srgb, var(--hl) 18%, transparent); color: var(--hl);
+  border: 1px solid color-mix(in srgb, var(--hl) 45%, transparent);
+}}
 .stale-odds {{ color: var(--hl); font-size: 11px; margin-top: 2px; opacity: .85; }}
 .pick {{ text-align: center; flex-shrink: 0; }}
 .pick-score {{
@@ -201,7 +208,10 @@ function readPts() {
 // Regras do bolao: errou o resultado -> 0; acertou -> base + no maximo um
 // bonus de placar + bonus de goleada (so se o PALPITE e o jogo real tiverem
 // um time fazendo 4+, i.e. voce previu a goleada e ela aconteceu).
-function pointsFor(i, j, a, b, pts) {
+// `w` e o peso da partida (x1 grupos, x2 mata-mata, x4 final): multiplica TODOS
+// os pontos do jogo. Por ser fator constante nao altera o argmax (placar otimo),
+// so escala o total — entao o palpite recomendado nao muda, mas a pontuacao sim.
+function pointsFor(i, j, a, b, pts, w) {
   const pd = i - j, rd = a - b;
   if (sgn(pd) !== sgn(rd)) return 0;
   let e = pts.base;
@@ -215,21 +225,21 @@ function pointsFor(i, j, a, b, pts) {
     else if (lp === lr) e += pts.lscore;
   }
   if (Math.max(i, j) >= pts.blowoutGoals && Math.max(a, b) >= pts.blowoutGoals) e += pts.blowout;
-  return e;
+  return e * (w || 1);
 }
 
-function epCell(M, i, j, pts) {
+function epCell(M, i, j, pts, w) {
   let e = 0;
   const n = M.length;
   for (let a = 0; a < n; a++) for (let b = 0; b < n; b++)
-    e += M[a][b] * pointsFor(i, j, a, b, pts);
+    e += M[a][b] * pointsFor(i, j, a, b, pts, w);
   return e;
 }
 
-function epMatrix(M, pts) {
+function epMatrix(M, pts, w) {
   const n = M.length;
   return Array.from({ length: n }, (_, i) =>
-    Array.from({ length: n }, (_, j) => epCell(M, i, j, pts)));
+    Array.from({ length: n }, (_, j) => epCell(M, i, j, pts, w)));
 }
 
 function bestOf(E) {
@@ -327,11 +337,11 @@ function updateWhatif(card, m, E, pts) {
 // Maior pontuacao possivel pra um resultado (palpite com hindsight = placar
 // exato). Independe do tamanho do heatmap: o range escala com o placar real,
 // entao funciona pra qualquer goleada (7-1, 15-0, ...) sem bugar o "de X possiveis".
-function bestPossible(a, b, pts) {
+function bestPossible(a, b, pts, w) {
   let best = 0;
   const hi = Math.max(a, b) + 1;
   for (let i = 0; i <= hi; i++) for (let j = 0; j <= hi; j++)
-    best = Math.max(best, pointsFor(i, j, a, b, pts));
+    best = Math.max(best, pointsFor(i, j, a, b, pts, w));
   return best;
 }
 
@@ -341,8 +351,9 @@ function updateResultCard(card, m, pts) {
   if (!m.result || m.pick == null) { panel.hidden = true; return null; }
   const [a, b] = m.result;
   const [pi, pj] = m.pick.split('-').map(Number);
-  const got = pointsFor(pi, pj, a, b, pts);
-  const max = bestPossible(a, b, pts);
+  const w = m.weight || 1;
+  const got = pointsFor(pi, pj, a, b, pts, w);
+  const max = bestPossible(a, b, pts, w);
   const correct = sgn(pi - pj) === sgn(a - b);
   const exact = pi === a && pj === b;
   const td = card.querySelector(`td[data-i="${a}"][data-j="${b}"]`);
@@ -385,7 +396,7 @@ function refreshAll() {
   document.querySelectorAll('.card[data-id]').forEach(card => {
     const m = byId[card.dataset.id];
     if (!m || !m.matrix) return;
-    const E = epMatrix(m.matrix, pts);
+    const E = epMatrix(m.matrix, pts, m.weight);
     // Em "Pontos esperados" o palpite maximiza E[pontos]; em "Probabilidade"
     // o palpite e o placar mais provavel — e o "pontos da estrategia" segue isso.
     const best = VIEW === 'prob' ? bestProb(m.matrix) : bestOf(E);
@@ -449,7 +460,7 @@ document.querySelector('.grid').addEventListener('click', e => {
   if (!m || !m.matrix) return;
   card._sel = [+td.dataset.i, +td.dataset.j];
   const pts = readPts();
-  updateWhatif(card, m, epMatrix(m.matrix, pts), pts);
+  updateWhatif(card, m, epMatrix(m.matrix, pts, m.weight), pts);
 });
 
 document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => {
@@ -567,7 +578,10 @@ def _card(r: RichMatch, newest_capture: datetime | None = None) -> str:
     away = html.escape(r.raw.away_team)
     when = r.raw.match_date.strftime("%d/%m %H:%M") if r.raw.match_date else "data a definir"
     day = r.raw.match_date.strftime("%d/%m") if r.raw.match_date else ""
-    attrs = f' data-id="{html.escape(r.raw.match_id)}" data-day="{day}"'
+    weight = bolao_weight(r.raw.match_date)
+    wlabel = {2: "mata-mata", 4: "final"}.get(weight)
+    wbadge = f'<span class="wmult" title="{wlabel}">×{weight}</span>' if wlabel else ""
+    attrs = f' data-id="{html.escape(r.raw.match_id)}" data-day="{day}" data-weight="{weight}"'
 
     stale = ""
     cap = r.raw.captured_at
@@ -577,14 +591,14 @@ def _card(r: RichMatch, newest_capture: datetime | None = None) -> str:
     head = (
         '<div class="card-head"><div>'
         f'<h2>{home} <span class="vs">×</span> {away}</h2>'
-        f'<div class="when">{when}</div>{stale}</div>'
+        f'<div class="when">{when}{wbadge}</div>{stale}</div>'
     )
     if p.score:
         head += (
             '<div class="pick">'
             f'<div class="pick-score">{p.score}</div>'
             f'<div class="pick-prob">{p.prob_score * 100:.2f}% do placar</div>'
-            f'<div class="pick-ep">{p.expected_points:.3f} pts esperados</div></div>'
+            f'<div class="pick-ep">{p.expected_points * weight:.3f} pts esperados</div></div>'
         )
     head += "</div>"
 
@@ -645,6 +659,7 @@ def _embedded_json(rich: list[RichMatch], title: str) -> str:
             "pick": p.score,
             "matrix": [[round(v, 6) for v in row] for row in p.matrix] if p.matrix else None,
             "result": [r.actual_home, r.actual_away] if r.is_resolved else None,
+            "weight": bolao_weight(r.raw.match_date),
         })
     payload = json.dumps(
         {"title": title, "blowoutGoals": BOLAO_BLOWOUT_GOALS, "matches": matches},
@@ -715,7 +730,7 @@ def write_html(rich: list[RichMatch], ts: datetime | None = None) -> Path:
 </div>
 <main class="grid">{cards}</main>
 <footer>Gerado em {generated}. O palpite destacado maximiza os pontos esperados do bolão sob a pontuação configurada acima
-(errou o resultado = 0; acertou = base + bônus de placar + goleada). Clique em qualquer célula do heatmap pra simular outro palpite.</footer>
+(errou o resultado = 0; acertou = base + bônus de placar + goleada). Jogos do mata-mata valem ×2 e a final ×4 (pelo calendário da Copa). Clique em qualquer célula do heatmap pra simular outro palpite.</footer>
 <script type="application/json" id="match-data">{_embedded_json(ordered, title)}</script>
 <script>{_JS}</script>
 </body>
