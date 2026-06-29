@@ -3,8 +3,7 @@
 Um arquivo único (CSS + JS inline, sem dependências externas) com, por partida:
   - palpite recomendado + probabilidade + pontos esperados;
   - barra 1X2 (probabilidades justas do modelo);
-  - heatmap clicável da matriz completa, alternável entre P(placar) e
-    E[pontos do bolão] — clicar num placar simula o palpite;
+  - heatmap da matriz completa, alternável entre P(placar) e E[pontos do bolão];
   - ranking dos placares (por probabilidade ou por pontos esperados).
 
 Interatividade (vanilla JS sobre os dados embutidos em JSON):
@@ -146,7 +145,6 @@ table.heat td {{
 }}
 table.heat td:hover {{ outline: 2px solid var(--muted); outline-offset: -1px; }}
 table.heat td.pick-cell {{ outline: 3px solid var(--hl); outline-offset: -1px; font-weight: 700; }}
-table.heat td.sel-cell {{ outline: 3px dashed var(--muted); outline-offset: -1px; }}
 .top-scores {{ flex: 1; min-width: 150px; }}
 .top-scores h3 {{ margin: 0 0 8px; font-size: 12.5px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }}
 .ts-row {{ display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 13px; }}
@@ -156,14 +154,12 @@ table.heat td.sel-cell {{ outline: 3px dashed var(--muted); outline-offset: -1px
 .ts-row.is-pick .ts-bar {{ opacity: 1; }}
 .ts-row.is-pick .ts-score {{ color: var(--accent); }}
 .ts-prob {{ width: 50px; text-align: right; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }}
-.whatif {{
-  margin-top: 12px; padding: 10px 12px; background: var(--soft); border-left: 3px solid var(--hl);
-  border-radius: 0 8px 8px 0; font-size: 13px; line-height: 1.5;
-}}
-.whatif .close {{ float: right; cursor: pointer; color: var(--muted); border: 0; background: none; font-size: 15px; }}
-.whatif .ok {{ color: var(--accent); font-weight: 600; }}
-.whatif .worse {{ color: var(--away); font-weight: 600; }}
 .lams {{ margin-top: 12px; font-size: 12px; color: var(--muted); }}
+.ko-line {{
+  margin-top: 12px; padding: 8px 12px; border-radius: 8px; background: var(--soft);
+  border-left: 3px solid var(--hl); font-size: 12.5px; line-height: 1.5;
+}}
+.ko-line[hidden] {{ display: none; }}
 .no-data {{ color: var(--muted); font-style: italic; margin: 18px 0; }}
 .scoreboard {{
   max-width: 1480px; margin: 0 auto 22px; border-radius: 14px; border: 1px solid var(--line);
@@ -208,6 +204,26 @@ function readPts() {
   };
 }
 
+// No bolao, prorrogacao e penaltis sao palpites INDEPENDENTES do placar, entao
+// nao entram no E[pontos] (somariam igual em toda celula). So indicamos o que
+// marcar — e so quando o palpite e EMPATE: prorrogacao=empate e penaltis=favorito.
+// Nos palpites de vitoria o favorito e o proprio time escolhido (obvio), entao
+// nao mostramos nada. Favorito = time mais provavel de vencer (pela matriz 90').
+function updateKoLine(card, m) {
+  const el = card.querySelector('.ko-line');
+  if (!el) return;
+  const [pi, pj] = (m.pick || '').split('-').map(Number);
+  if ((m.weight || 1) < 2 || pi !== pj) { el.hidden = true; return; }
+  let pH = 0, pA = 0;
+  const M = m.matrix, n = M.length;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    if (i > j) pH += M[i][j]; else if (i < j) pA += M[i][j];
+  }
+  const fav = pH >= pA ? m.home : m.away;
+  el.innerHTML = `<b>Mata-mata</b> — palpite de empate: prorrogação <b>empate</b> · pênaltis <b>${fav}</b>`;
+  el.hidden = false;
+}
+
 // Regras do bolao: errou o resultado -> 0; acertou -> base + no maximo um
 // bonus de placar + bonus de goleada (so se o PALPITE e o jogo real tiverem
 // um time fazendo 4+, i.e. voce previu a goleada e ela aconteceu).
@@ -231,12 +247,15 @@ function pointsFor(i, j, a, b, pts, w) {
   return e * (w || 1);
 }
 
+// EP do placar (90'), so do palpite de placar. O bonus de prorrogacao/penaltis
+// NAO entra aqui: como e um chute independente do placar, somaria igual em toda
+// celula (ate no nao-favorito) e nao mudaria nada — fica indicado a parte.
 function epCell(M, i, j, pts, w) {
   let e = 0;
   const n = M.length;
   for (let a = 0; a < n; a++) for (let b = 0; b < n; b++)
-    e += M[a][b] * pointsFor(i, j, a, b, pts, w);
-  return e;
+    e += M[a][b] * pointsFor(i, j, a, b, pts, 1);
+  return e * (w || 1);
 }
 
 function epMatrix(M, pts, w) {
@@ -309,32 +328,6 @@ function rebuildTop(card, m, E, pick) {
       `<span class="ts-prob">${VIEW === 'ep' ? fmt(v) : pct(m.matrix[i][j])}</span>`;
     box.appendChild(row);
   }
-}
-
-function updateWhatif(card, m, E, pts) {
-  const panel = card.querySelector('.whatif');
-  if (!card._sel) { panel.hidden = true; return; }
-  const [i, j] = card._sel;
-  const e = E[i][j];
-  const best = bestOf(E);
-  const isBest = i === best.i && j === best.j;
-  const n = m.matrix.length;
-  let pOut = 0, pBlow = 0;
-  for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) {
-    if (sgn(a - b) === sgn(i - j)) pOut += m.matrix[a][b];
-    if (Math.max(a, b) >= pts.blowoutGoals) pBlow += m.matrix[a][b];
-  }
-  const verdict = isBest
-    ? '<span class="ok">é o palpite ótimo ✓</span>'
-    : `<span class="worse">−${fmt(best.ep - e)} pts</span> vs o ótimo (${best.i}-${best.j}, ${fmt(best.ep)})`;
-  panel.innerHTML =
-    `<button class="close" title="fechar">✕</button>` +
-    `Se você jogar <b>${i}-${j}</b>: <b>${fmt(e)}</b> pontos esperados — ${verdict}<br>` +
-    `acerta o resultado ${pct(pOut)} · placar exato ${pct(m.matrix[i][j])} · jogo com goleada ${pct(pBlow)}`;
-  panel.hidden = false;
-  card.querySelectorAll('td.sel-cell').forEach(td => td.classList.remove('sel-cell'));
-  const td = card.querySelector(`td[data-i="${i}"][data-j="${j}"]`);
-  if (td && !td.classList.contains('pick-cell')) td.classList.add('sel-cell');
 }
 
 // Maior pontuacao possivel pra um resultado (palpite com hindsight = placar
@@ -412,7 +405,7 @@ function refreshAll() {
     if (td) td.classList.add('pick-cell');
     recolorHeat(card, m, E);
     rebuildTop(card, m, E, m.pick);
-    updateWhatif(card, m, E, pts);
+    updateKoLine(card, m);
     const res = updateResultCard(card, m, pts);
     if (res) { agg.n++; agg.got += res.got; agg.max += res.max; agg.correct += res.correct ? 1 : 0; agg.exact += res.exact ? 1 : 0; }
   });
@@ -446,25 +439,6 @@ function copyPicks() {
     setTimeout(() => { btn.textContent = old; }, 1600);
   });
 }
-
-document.querySelector('.grid').addEventListener('click', e => {
-  const close = e.target.closest('.whatif .close');
-  if (close) {
-    const card = close.closest('.card');
-    card._sel = null;
-    card.querySelectorAll('td.sel-cell').forEach(td => td.classList.remove('sel-cell'));
-    card.querySelector('.whatif').hidden = true;
-    return;
-  }
-  const td = e.target.closest('td[data-i]');
-  if (!td) return;
-  const card = td.closest('.card');
-  const m = byId[card.dataset.id];
-  if (!m || !m.matrix) return;
-  card._sel = [+td.dataset.i, +td.dataset.j];
-  const pts = readPts();
-  updateWhatif(card, m, epMatrix(m.matrix, pts, m.weight), pts);
-});
 
 document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => {
   document.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
@@ -672,7 +646,7 @@ def _card(r: RichMatch, newest_capture: datetime | None = None) -> str:
         f'<article class="card"{attrs}>{head}{bar}'
         f'<div class="body-flex">{_heatmap(r)}{_top_scores(r)}</div>'
         '<div class="result" hidden></div>'
-        '<div class="whatif" hidden></div>'
+        '<div class="ko-line" hidden></div>'
         f"{lams}{odds_line}</article>"
     )
 
@@ -692,7 +666,11 @@ def _embedded_json(rich: list[RichMatch], title: str) -> str:
             "weight": bolao_weight(r.raw.match_date),
         })
     payload = json.dumps(
-        {"title": title, "blowoutGoals": BOLAO_BLOWOUT_GOALS, "matches": matches},
+        {
+            "title": title,
+            "blowoutGoals": BOLAO_BLOWOUT_GOALS,
+            "matches": matches,
+        },
         ensure_ascii=False,
     )
     # "</" dentro de <script> encerraria a tag — escapa por segurança
@@ -759,8 +737,7 @@ def write_html(rich: list[RichMatch], ts: datetime | None = None) -> Path:
 <button id="copy-btn">Copiar palpites</button>
 </div>
 <main class="grid">{cards}</main>
-<footer>Gerado em {generated}. O palpite destacado maximiza os pontos esperados do bolão sob a pontuação configurada acima
-(errou o resultado = 0; acertou = base + bônus de placar + goleada). Jogos do mata-mata valem ×2 e a final ×4 (pelo calendário da Copa). Clique em qualquer célula do heatmap pra simular outro palpite.</footer>
+<footer>Gerado em {generated}. O palpite destacado maximiza os pontos esperados do placar (errou o resultado = 0; acertou = base + bônus de placar + goleada). Mata-mata vale ×2 e a final ×4 (pelo calendário da Copa); nesses jogos, por padrão chutamos empate na prorrogação e o favorito nos pênaltis.</footer>
 <script type="application/json" id="match-data">{_embedded_json(ordered, title)}</script>
 <script>{_JS}</script>
 </body>
