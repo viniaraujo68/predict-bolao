@@ -61,26 +61,67 @@ def save_snapshot(matches: list[RawMatch], ts: datetime | None = None) -> Path:
     return path
 
 
+def _match_key(m: RawMatch) -> tuple[str, str, str | None]:
+    """Identidade da partida independente do match_id: mesmos times na mesma
+    data são a mesma partida. A bet365 às vezes captura sem o id do evento
+    (ex.: abrindo a página de um jogo isolado com ENTER, sem a lista da Copa) e
+    cai num id sintético 'Home_vs_Away' — sem isto, viraria partida duplicada.
+    Os nomes já vêm canonicalizados pelo RawMatch (ver core/teams.py)."""
+    day = m.match_date.date().isoformat() if m.match_date else None
+    return (m.home_team, m.away_team, day)
+
+
+def _is_synthetic_id(match_id: str) -> bool:
+    """Ids reais da bet365 são numéricos; o fallback é 'Home_vs_Away'."""
+    return not match_id.isdigit()
+
+
+def _fold(
+    by_id: dict[str, RawMatch], by_key: dict[tuple, RawMatch], m: RawMatch
+) -> bool:
+    """Insere `m`, deduplicando por match_id OU por identidade (times+data).
+    O dado novo sempre ganha, mas preserva-se o match_id real/numérico se o novo
+    vier do fallback sintético (assim o vínculo com resultados.json não quebra).
+
+    Retorna True se substituiu uma partida já presente."""
+    prev = by_id.get(m.match_id) or by_key.get(_match_key(m))
+    if prev is not None:
+        by_id.pop(prev.match_id, None)
+        by_key.pop(_match_key(prev), None)
+        if _is_synthetic_id(m.match_id) and not _is_synthetic_id(prev.match_id):
+            m = m.model_copy(update={"match_id": prev.match_id})
+    by_id[m.match_id] = m
+    by_key[_match_key(m)] = m
+    return prev is not None
+
+
 def update_store(matches: list[RawMatch]) -> tuple[Path, int, int]:
-    """Carrega o store, insere/substitui por match_id (captura nova SEMPRE ganha)
+    """Carrega o store, insere/substitui por partida (captura nova SEMPRE ganha)
     e regrava. Cada partida preserva seu proprio `captured_at`.
+
+    Deduplica por identidade (times+data), não só por match_id — ver _fold. O
+    fold também sana duplicatas pré-existentes no store ao regravar.
 
     Retorna (path, novas, atualizadas).
     """
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    existing: dict[str, RawMatch] = {m.match_id: m for m in load_store()}
+    by_id: dict[str, RawMatch] = {}
+    by_key: dict[tuple, RawMatch] = {}
+    for m in load_store():
+        _fold(by_id, by_key, m)
 
+    known_ids, known_keys = set(by_id), set(by_key)
     novas = atualizadas = 0
     for m in matches:
-        if m.match_id in existing:
+        if m.match_id in known_ids or _match_key(m) in known_keys:
             atualizadas += 1
         else:
             novas += 1
-        existing[m.match_id] = m
+        _fold(by_id, by_key, m)
 
     payload = {
         "saved_at": datetime.now().isoformat(),
-        "matches": [m.model_dump(mode="json") for m in existing.values()],
+        "matches": [m.model_dump(mode="json") for m in by_id.values()],
     }
     STORE_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
     return STORE_PATH, novas, atualizadas
