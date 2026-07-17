@@ -13,7 +13,12 @@ from config import (
     BOLAO_BONUS_EXACT,
     BOLAO_BONUS_WINNER_SCORE,
 )
-from core.math_engine import bolao_points, expected_points_matrix
+from core.math_engine import (
+    bolao_knockout_max,
+    bolao_knockout_points,
+    bolao_points,
+    expected_points_matrix,
+)
 
 
 def test_goleada_exige_prever_goleada():
@@ -35,6 +40,30 @@ def test_resultado_errado_zera():
     assert bolao_points(1, 1, 2, 0) == 0.0
 
 
+def test_knockout_penaltis_empate_certo_favorito_errado():
+    # Alemanha (favorito=home) x Paraguai: foi a pênaltis e o de FORA venceu.
+    # Empate na prorrogação cravado (+base); favorito perdeu os pênaltis (0).
+    assert bolao_knockout_points("penaltis", winner_is_home=False, favorite_is_home=True) == BOLAO_BASE_OUTCOME
+    # E o palpite de 2-0 contra 1-1 zera o placar -> total do jogo = base x peso(2) = 6.
+    got = bolao_points(2, 0, 1, 1) + bolao_knockout_points("penaltis", False, True)
+    assert got * 2 == 6
+
+
+def test_knockout_penaltis_favorito_acerta_soma_dobro():
+    # Favorito venceu os pênaltis: empate (+base) + favorito (+base).
+    assert bolao_knockout_points("penaltis", winner_is_home=True, favorite_is_home=True) == 2 * BOLAO_BASE_OUTCOME
+
+
+def test_knockout_prorrogacao_com_gol_nao_pontua():
+    # Decidido na prorrogação (gol): empate previsto está errado, sem pênaltis -> 0.
+    assert bolao_knockout_points("prorrogacao", winner_is_home=True, favorite_is_home=True) == 0.0
+
+
+def test_knockout_max():
+    assert bolao_knockout_max("penaltis") == 2 * BOLAO_BASE_OUTCOME
+    assert bolao_knockout_max("prorrogacao") == BOLAO_BASE_OUTCOME
+
+
 def test_matriz_vetorizada_bate_com_escalar():
     rng = np.random.default_rng(7)
     P = rng.random((6, 6))
@@ -53,5 +82,9 @@ if __name__ == "__main__":
     test_goleada_exige_prever_goleada()
     test_placar_exato_de_goleada_inclui_bonus()
     test_resultado_errado_zera()
+    test_knockout_penaltis_empate_certo_favorito_errado()
+    test_knockout_penaltis_favorito_acerta_soma_dobro()
+    test_knockout_prorrogacao_com_gol_nao_pontua()
+    test_knockout_max()
     test_matriz_vetorizada_bate_com_escalar()
     print("OK: testes de pontuação do bolão (regra de goleada + consistência) passaram")

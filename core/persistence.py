@@ -138,19 +138,32 @@ def load_store() -> list[RawMatch]:
     return [RawMatch.model_validate(m) for m in payload.get("matches", [])]
 
 
-def load_results() -> dict[str, tuple[int, int]]:
-    """Carrega os placares reais inputados (resultados.json). Vazio se nao existir.
-
-    Retorna {match_id: (gols_casa, gols_fora)}.
-    """
+def _load_raw_results() -> dict[str, dict]:
+    """Entradas cruas do resultados.json: {match_id: {home, away, ko?}}."""
     if not RESULTS_PATH.exists():
         return {}
     try:
         payload = json.loads(RESULTS_PATH.read_text())
     except Exception:
         return {}
+    raw = payload.get("results", {})
+    return {mid: v for mid, v in raw.items() if isinstance(v, dict)}
+
+
+def _save_raw_results(raw: dict[str, dict]) -> Path:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {"saved_at": datetime.now().isoformat(), "results": raw}
+    RESULTS_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+    return RESULTS_PATH
+
+
+def load_results() -> dict[str, tuple[int, int]]:
+    """Carrega os placares reais (resultados.json). Vazio se nao existir.
+
+    Retorna {match_id: (gols_casa, gols_fora)} — sempre o placar de 90'.
+    """
     out: dict[str, tuple[int, int]] = {}
-    for mid, v in payload.get("results", {}).items():
+    for mid, v in _load_raw_results().items():
         try:
             out[mid] = (int(v["home"]), int(v["away"]))
         except (KeyError, TypeError, ValueError):
@@ -158,21 +171,38 @@ def load_results() -> dict[str, tuple[int, int]]:
     return out
 
 
+def load_decisions() -> dict[str, dict]:
+    """Carrega os desfechos de mata-mata (prorrogação/pênaltis) gravados.
+
+    Retorna {match_id: {stage, winner, et_home, et_away, pen_home, pen_away}}.
+    """
+    out: dict[str, dict] = {}
+    for mid, v in _load_raw_results().items():
+        ko = v.get("ko")
+        if isinstance(ko, dict):
+            out[mid] = ko
+    return out
+
+
 def save_results(results: dict[str, tuple[int, int]]) -> Path:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "saved_at": datetime.now().isoformat(),
-        "results": {mid: {"home": h, "away": a} for mid, (h, a) in results.items()},
-    }
-    RESULTS_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
-    return RESULTS_PATH
+    """Grava placares (tuplas) preservando qualquer bloco `ko` já existente."""
+    raw = _load_raw_results()
+    for mid, (h, a) in results.items():
+        entry = raw.get(mid, {})
+        entry["home"], entry["away"] = h, a
+        raw[mid] = entry
+    return _save_raw_results(raw)
 
 
-def set_result(match_id: str, home: int, away: int) -> Path:
-    """Registra/atualiza o placar real de uma partida."""
-    results = load_results()
-    results[match_id] = (home, away)
-    return save_results(results)
+def set_result(match_id: str, home: int, away: int, ko: dict | None = None) -> Path:
+    """Registra/atualiza o placar real (90') de uma partida e, opcionalmente, o
+    desfecho de mata-mata (`ko`). Passar ko=None remove um ko anterior."""
+    raw = _load_raw_results()
+    entry = {"home": int(home), "away": int(away)}
+    if ko:
+        entry["ko"] = ko
+    raw[match_id] = entry
+    return _save_raw_results(raw)
 
 
 def load_snapshot(path: Path | str) -> tuple[list[RawMatch], datetime | None]:

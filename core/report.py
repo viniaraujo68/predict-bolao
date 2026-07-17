@@ -182,6 +182,7 @@ table.heat td.pick-cell {{ outline: 3px solid var(--hl); outline-offset: -1px; f
 .result .pts {{ font-weight: 700; }}
 .result.hit .pts {{ color: var(--accent); }}
 .result.miss .pts {{ color: var(--away); }}
+.result .ko-out {{ color: #8a4bd1; font-weight: 600; }}
 table.heat td.actual-cell {{ box-shadow: inset 0 0 0 3px var(--home); font-weight: 700; }}
 footer {{ max-width: 1480px; margin: 26px auto 0; color: var(--muted); font-size: 12px; }}
 """
@@ -205,22 +206,15 @@ function readPts() {
 }
 
 // No bolao, prorrogacao e penaltis sao palpites INDEPENDENTES do placar, entao
-// nao entram no E[pontos] (somariam igual em toda celula). So indicamos o que
-// marcar — e so quando o palpite e EMPATE: prorrogacao=empate e penaltis=favorito.
-// Nos palpites de vitoria o favorito e o proprio time escolhido (obvio), entao
-// nao mostramos nada. Favorito = time mais provavel de vencer (pela matriz 90').
+// nao entram no E[pontos] do placar (somariam igual em toda celula). Mas existem
+// SEMPRE no mata-mata: a previsao fixa e prorrogacao=empate e penaltis=favorito,
+// cada acerto vale a base x peso. Favorito = time mais provavel de vencer (90').
 function updateKoLine(card, m) {
   const el = card.querySelector('.ko-line');
   if (!el) return;
-  const [pi, pj] = (m.pick || '').split('-').map(Number);
-  if ((m.weight || 1) < 2 || pi !== pj) { el.hidden = true; return; }
-  let pH = 0, pA = 0;
-  const M = m.matrix, n = M.length;
-  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-    if (i > j) pH += M[i][j]; else if (i < j) pA += M[i][j];
-  }
-  const fav = pH >= pA ? m.home : m.away;
-  el.innerHTML = `<b>Mata-mata</b> — palpite de empate: prorrogação <b>empate</b> · pênaltis <b>${fav}</b>`;
+  if ((m.weight || 1) < 2) { el.hidden = true; return; }
+  const fav = favoriteHome(m.matrix) ? m.home : m.away;
+  el.innerHTML = `<b>Mata-mata</b> — palpite: prorrogação <b>empate</b> · pênaltis <b>${fav}</b>`;
   el.hidden = false;
 }
 
@@ -245,6 +239,30 @@ function pointsFor(i, j, a, b, pts, w) {
   }
   if (Math.max(i, j) >= pts.blowoutGoals && Math.max(a, b) >= pts.blowoutGoals) e += pts.blowout;
   return e * (w || 1);
+}
+
+// Favorito = lado mais provavel de vencer pela matriz 90'.
+function favoriteHome(M) {
+  let pH = 0, pA = 0;
+  for (let i = 0; i < M.length; i++) for (let j = 0; j < M.length; j++) {
+    if (i > j) pH += M[i][j]; else if (i < j) pA += M[i][j];
+  }
+  return pH >= pA;
+}
+
+// Sub-palpites de mata-mata (prorrogacao + penaltis), previsao fixa empate+favorito.
+// Independentes do placar de 90', somam `base` por acerto. Retorna {got, max} SEM
+// peso (quem multiplica pelo peso e quem chama). Constante por celula -> nao muda
+// o palpite otimo do placar, so a pontuacao do jogo resolvido.
+function koPoints(ko, M, base) {
+  if (!ko) return { got: 0, max: 0 };
+  let got = 0, max = base;                 // prorrogacao: sempre da pra cravar o desfecho
+  if (ko.stage === 'penaltis') {
+    got += base;                            // previmos empate -> foi a penaltis (certo)
+    max += base;                            // penaltis tem vencedor cravavel
+    if (ko.winnerHome === favoriteHome(M)) got += base;  // favorito venceu os penaltis
+  }
+  return { got, max };
 }
 
 // EP do placar (90'), so do palpite de placar. O bonus de prorrogacao/penaltis
@@ -348,8 +366,12 @@ function updateResultCard(card, m, pts) {
   const [a, b] = m.result;
   const [pi, pj] = m.pick.split('-').map(Number);
   const w = m.weight || 1;
-  const got = pointsFor(pi, pj, a, b, pts, w);
-  const max = bestPossible(a, b, pts, w);
+  const scoreGot = pointsFor(pi, pj, a, b, pts, w);
+  const scoreMax = bestPossible(a, b, pts, w);
+  // Bonus de mata-mata (prorrogacao/penaltis) somado ao placar, tudo x peso.
+  const koPts = koPoints(m.ko, m.matrix, pts.base);
+  const got = scoreGot + koPts.got * w;
+  const max = scoreMax + koPts.max * w;
   const correct = sgn(pi - pj) === sgn(a - b);
   const exact = pi === a && pj === b;
   const td = card.querySelector(`td[data-i="${a}"][data-j="${b}"]`);
@@ -357,10 +379,23 @@ function updateResultCard(card, m, pts) {
   // Placar real fora do grid 6x6 (goleada): nao da pra marcar a celula.
   const offGrid = a >= m.matrix.length || b >= m.matrix.length;
   const verdict = exact ? 'placar exato ✓' : correct ? 'acertou o resultado' : 'errou o resultado';
+  // Mata-mata: o placar pontuado é o de 90'; prorrogação/pênaltis (quem avançou)
+  // entram só como nota, sem afetar os pontos (são palpites independentes).
+  let koNote = '';
+  if (m.ko) {
+    const k = m.ko;
+    const phase = k.stage === 'penaltis'
+      ? `pênaltis ${k.pen[0]}-${k.pen[1]} → <b>${k.winner}</b> avançou`
+      : `prorrogação ${k.et[0]}-${k.et[1]} → <b>${k.winner}</b> avançou`;
+    // palpite fixo: empate na prorrogação + favorito nos pênaltis.
+    const koBonus = koPts.got * w;
+    koNote = ` <span class="ko-out">· ${phase} (mata-mata: +${koBonus} pts)</span>`;
+  }
   panel.className = 'result ' + (got > 0 ? 'hit' : 'miss');
   panel.innerHTML =
-    `Resultado real <span class="score">${a}-${b}</span>` +
+    `Resultado real (90') <span class="score">${a}-${b}</span>` +
     (offGrid ? ' <span style="color:var(--muted)">(fora do heatmap)</span>' : '') +
+    koNote +
     ` · palpite <b>${m.pick}</b> → ` +
     `<span class="pts">${got} pts</span> <span style="color:var(--muted)">de ${max} possíveis · ${verdict}</span>`;
   panel.hidden = false;
@@ -655,6 +690,16 @@ def _embedded_json(rich: list[RichMatch], title: str) -> str:
     matches = []
     for r in rich:
         p = r.prediction
+        ko = None
+        if r.decision:
+            d = r.decision
+            ko = {
+                "stage": d.stage,
+                "winner": r.raw.home_team if d.winner == "home" else r.raw.away_team,
+                "winnerHome": d.winner == "home",
+                "et": [d.et_home, d.et_away],
+                "pen": [d.pen_home, d.pen_away],
+            }
         matches.append({
             "id": r.raw.match_id,
             "home": r.raw.home_team,
@@ -663,6 +708,7 @@ def _embedded_json(rich: list[RichMatch], title: str) -> str:
             "pick": p.score,
             "matrix": [[round(v, 6) for v in row] for row in p.matrix] if p.matrix else None,
             "result": [r.actual_home, r.actual_away] if r.is_resolved else None,
+            "ko": ko,
             "weight": bolao_weight(r.raw.match_date),
         })
     payload = json.dumps(
@@ -737,7 +783,7 @@ def write_html(rich: list[RichMatch], ts: datetime | None = None) -> Path:
 <button id="copy-btn">Copiar palpites</button>
 </div>
 <main class="grid">{cards}</main>
-<footer>Gerado em {generated}. O palpite destacado maximiza os pontos esperados do placar (errou o resultado = 0; acertou = base + bônus de placar + goleada). Mata-mata vale ×2 e a final ×4 (pelo calendário da Copa); nesses jogos, por padrão chutamos empate na prorrogação e o favorito nos pênaltis.</footer>
+<footer>Gerado em {generated}. O palpite destacado maximiza os pontos esperados do placar (errou o resultado = 0; acertou = base + bônus de placar + goleada). Mata-mata vale ×2 e a final ×4 (pelo calendário da Copa); nesses jogos chutamos empate na prorrogação e o favorito nos pênaltis — cada acerto soma a base (×peso), à parte do placar de 90'.</footer>
 <script type="application/json" id="match-data">{_embedded_json(ordered, title)}</script>
 <script>{_JS}</script>
 </body>

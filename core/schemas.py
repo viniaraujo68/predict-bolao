@@ -54,12 +54,27 @@ class ConsolidatedPrediction(BaseModel):
     matrix: list[list[float]] | None = None  # P(home=i, away=j) completa
 
 
+class KnockoutDecision(BaseModel):
+    """Desfecho de um mata-mata decidido além dos 90' (prorrogação/pênaltis).
+
+    Independente do placar de 90' (que o bolão pontua): só descreve quem avançou."""
+
+    stage: str               # 'prorrogacao' | 'penaltis'
+    winner: str              # 'home' | 'away' (mando do store)
+    et_home: int | None = None   # placar após prorrogação (120')
+    et_away: int | None = None
+    pen_home: int | None = None  # placar nos pênaltis (None se decidido na prorrogação)
+    pen_away: int | None = None
+
+
 class RichMatch(BaseModel):
     raw: RawMatch
     prediction: ConsolidatedPrediction
-    # Placar real (inputado manualmente). Preenchido quando o jogo ja foi resolvido.
+    # Placar real de 90' (inputado/ESPN). Preenchido quando o jogo ja foi resolvido.
     actual_home: int | None = None
     actual_away: int | None = None
+    # Desfecho de mata-mata, quando passou dos 90'. None em jogo normal.
+    decision: KnockoutDecision | None = None
 
     @property
     def is_resolved(self) -> bool:

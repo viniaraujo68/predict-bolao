@@ -9,10 +9,12 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from config import bolao_weight
 from core.backtest import run_backtest
 from core.ingestion import Bet365Scraper
-from core.math_engine import bolao_points
+from core.math_engine import bolao_knockout_max, bolao_knockout_points, bolao_points
 from core.persistence import (
+    load_decisions,
     load_results,
     load_snapshot,
     load_store,
@@ -25,10 +27,10 @@ from core.report import write_html
 from core.results_source import (
     dates_window,
     fetch_scoreboard,
-    match_event,
+    resolve_event,
     unresolved_past_matches,
 )
-from core.schemas import RawMatch, RichMatch
+from core.schemas import KnockoutDecision, RawMatch, RichMatch
 
 app = typer.Typer(help="Motor de palpites para bolão da Copa do Mundo (bet365.bet.br).")
 console = Console()
@@ -42,10 +44,14 @@ def _generate_reports(matches: list[RawMatch], ts: datetime) -> tuple:
     """
     rich = enrich(matches)
     results = load_results()
+    decisions = load_decisions()
     for r in rich:
         res = results.get(r.raw.match_id)
         if res:
             r.actual_home, r.actual_away = res
+        ko = decisions.get(r.raw.match_id)
+        if ko:
+            r.decision = KnockoutDecision(**ko)
     df = to_dataframe(rich)
     html_path = write_html(rich, ts=ts)
     return df, html_path, rich
@@ -74,13 +80,30 @@ def _fetch_results(store: list[RawMatch]) -> int:
 
     aplicados = 0
     for m in targets:
-        score = match_event(m, pool)
-        if score is None:
+        res = resolve_event(m, pool)
+        if res is None:
             console.print(f"[yellow]  ? sem placar na ESPN: {m.home_team} x {m.away_team}[/yellow]")
             continue
-        set_result(m.match_id, score[0], score[1])
+        set_result(m.match_id, res.home, res.away, ko=res.ko)
         aplicados += 1
-        console.print(f"[green]  + {m.home_team} {score[0]} x {score[1]} {m.away_team}[/green]")
+        extra = ""
+        if res.ko:
+            vencedor = m.home_team if res.ko["winner"] == "home" else m.away_team
+            if res.ko["stage"] == "penaltis":
+                extra = (
+                    f" [magenta](pênaltis {res.ko['pen_home']}-{res.ko['pen_away']}"
+                    f" → {vencedor})[/magenta]"
+                )
+            else:
+                extra = (
+                    f" [magenta](prorrogação {res.ko['et_home']}-{res.ko['et_away']}"
+                    f" → {vencedor})[/magenta]"
+                )
+        elif res.degraded:
+            extra = " [yellow](summary indisponível: placar pode incluir prorrogação)[/yellow]"
+        console.print(
+            f"[green]  + {m.home_team} {res.home} x {res.away} {m.away_team}[/green]{extra}"
+        )
 
     console.print(f"[green]{aplicados}/{len(targets)} placares gravados.[/green]")
     return aplicados
@@ -189,6 +212,20 @@ def _render_table(df: pl.DataFrame) -> None:
     console.print(table)
 
 
+def _favorite_is_home(r: RichMatch) -> bool:
+    """Favorito (palpite de pênaltis) = lado mais provável de vencer. Usa as
+    probs 1X2 do modelo; cai pra soma dos triângulos da matriz se faltarem."""
+    p = r.prediction
+    if p.p_home is not None and p.p_away is not None:
+        return p.p_home >= p.p_away
+    if p.matrix:
+        n = len(p.matrix)
+        ph = sum(p.matrix[i][j] for i in range(n) for j in range(n) if i > j)
+        pa = sum(p.matrix[i][j] for i in range(n) for j in range(n) if i < j)
+        return ph >= pa
+    return True
+
+
 def _render_resolved(rich: list[RichMatch]) -> None:
     """Mostra os jogos resolvidos: palpite (maior E[pontos]) vs placar real e
     o total acumulado da estrategia."""
@@ -208,6 +245,7 @@ def _render_resolved(rich: list[RichMatch]) -> None:
     resolved.sort(key=lambda r: (r.raw.match_date is None, r.raw.match_date))
     for r in resolved:
         a, b = r.actual_home, r.actual_away
+        w = bolao_weight(r.raw.match_date)
         pick = r.prediction.score or "-"
         if r.prediction.score:
             pi, pj = (int(x) for x in r.prediction.score.split("-"))
@@ -223,15 +261,31 @@ def _render_resolved(rich: list[RichMatch]) -> None:
             bolao_points(i, j, a, b)
             for i in range(hi) for j in range(hi)
         )
+        # Sub-palpites de mata-mata (prorrogação/pênaltis): independentes do
+        # placar de 90', somam BASE por acerto. Previsão fixa = empate + favorito.
+        if r.decision:
+            fav_home = _favorite_is_home(r)
+            got += bolao_knockout_points(r.decision.stage, r.decision.winner == "home", fav_home)
+            best += bolao_knockout_max(r.decision.stage)
+        # Fase (×2 mata-mata, ×4 final) multiplica todos os pontos do jogo.
+        got *= w
+        best *= w
         total += got
         max_total += best
         n_correct += int(correct)
         n_exact += int(exact)
         style = "green" if got > 0 else "red"
+        real = f"{a}-{b}"
+        if r.decision:
+            vencedor = r.raw.home_team if r.decision.winner == "home" else r.raw.away_team
+            if r.decision.stage == "penaltis":
+                real += f"\n[magenta]pên. {r.decision.pen_home}-{r.decision.pen_away} ({vencedor})[/magenta]"
+            else:
+                real += f"\n[magenta]pror. {r.decision.et_home}-{r.decision.et_away} ({vencedor})[/magenta]"
         table.add_row(
             f"{r.raw.home_team} x {r.raw.away_team}",
             pick,
-            f"{a}-{b}",
+            real,
             f"[{style}]{got:.0f}[/{style}]",
             f"{best:.0f}",
         )

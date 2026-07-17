@@ -267,6 +267,33 @@ def bolao_points(pred_h: int, pred_a: int, real_h: int, real_a: int) -> float:
     return float(pts)
 
 
+def bolao_knockout_points(stage: str, winner_is_home: bool, favorite_is_home: bool) -> float:
+    """Pontos dos sub-palpites de mata-mata (prorrogação + pênaltis), SEM o peso.
+
+    Previsão fixa (a do tool): empate na prorrogação + favorito nos pênaltis.
+    São palpites independentes do placar de 90', cada acerto vale BASE:
+    - prorrogação: previmos empate → certo se o jogo foi a pênaltis (stage=='penaltis');
+    - pênaltis: previmos o favorito → certo se houve pênaltis e o favorito venceu.
+    Como a previsão é fixa, esse bônus é constante para qualquer placar palpitado
+    e não altera o palpite ótimo (só entra na pontuação do jogo já resolvido).
+    """
+    pts = 0.0
+    if stage == "penaltis":
+        pts += BOLAO_BASE_OUTCOME  # empate na prorrogação acertado
+        if winner_is_home == favorite_is_home:
+            pts += BOLAO_BASE_OUTCOME  # favorito venceu os pênaltis
+    return float(pts)
+
+
+def bolao_knockout_max(stage: str) -> float:
+    """Máximo alcançável nos sub-palpites de mata-mata (sem peso): sempre dá pra
+    cravar o desfecho da prorrogação (BASE) e, se houve pênaltis, o vencedor (+BASE)."""
+    m = BOLAO_BASE_OUTCOME
+    if stage == "penaltis":
+        m += BOLAO_BASE_OUTCOME
+    return float(m)
+
+
 def expected_points_matrix(prob: np.ndarray) -> np.ndarray:
     """E[pontos do bolão] pra cada palpite (i, j) sob a distribuição `prob`."""
     n = prob.shape[0]
