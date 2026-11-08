@@ -51,6 +51,133 @@ heurístico antigo** (+21%), acertando mais vencedores (56.6% vs 45.8%):
 python main.py backtest data/backtest/PL_2022_23.csv
 ```
 
+## Resultado do predictor na Copa 2026
+
+📊 **[Ver o relatório HTML interativo completo](https://viniaraujo68.github.io/predict-bolao/)** (heatmaps, ranking de placares, simulador de pontos).
+
+Desempenho da estratégia (palpite de maior pontos esperados) contra os placares reais, nas regras do bolão (mata-mata ×2, final ×4, com sub-palpites de prorrogação/pênaltis):
+
+| Fase | Jogos | Pontos | Máx. possível | Aproveitamento |
+|---|---:|---:|---:|---:|
+| Grupos | 72 | 241 | 591 | 41% |
+| Mata-mata | 32 | 232 | 616 | 38% |
+| **Total** | **104** | **473** | **1207** | **39%** |
+
+473 pts em 104 jogos (4.55/jogo) · resultados certos 67/104 · placares exatos 13/104 · aproveitamento 473/1207 (39%)
+
+<details>
+<summary>Todos os jogos (palpite vs real)</summary>
+
+| Partida | Palpite | Real | Pontos | Máx |
+|---|:---:|:---:|---:|---:|
+| México x África do Sul | 2-0 | 2-0 | 8 | 8 |
+| Coreia do Sul x República Tcheca | 2-1 | 2-1 | 8 | 8 |
+| Canadá x Bósnia e Herzegovina | 2-1 | 1-1 | 0 | 8 |
+| Estados Unidos x Paraguai | 2-1 | 4-1 | 4 | 9 |
+| Catar x Suíça | 0-2 | 1-1 | 0 | 8 |
+| Brasil x Marrocos | 2-0 | 1-1 | 0 | 8 |
+| Haiti x Escócia | 0-2 | 0-1 | 4 | 8 |
+| Austrália x Turquia | 1-2 | 2-0 | 0 | 8 |
+| Alemanha x Curaçao | 4-0 | 7-1 | 4 | 9 |
+| Holanda x Japão | 2-1 | 2-2 | 0 | 8 |
+| Costa do Marfim x Equador | 0-0 | 1-0 | 0 | 8 |
+| Suécia x Tunísia | 2-1 | 5-1 | 4 | 9 |
+| Espanha x Cabo Verde | 4-0 | 0-0 | 0 | 8 |
+| Bélgica x Egito | 2-0 | 1-1 | 0 | 8 |
+| Arábia Saudita x Uruguai | 0-2 | 1-1 | 0 | 8 |
+| Irã x Nova Zelândia | 2-1 | 2-2 | 0 | 8 |
+| França x Senegal | 2-0 | 3-1 | 5 | 8 |
+| Iraque x Noruega | 0-2 | 1-4 | 3 | 9 |
+| Argentina x Argélia | 2-0 | 3-0 | 4 | 8 |
+| Áustria x Jordânia | 2-0 | 3-1 | 5 | 8 |
+| Portugal x República Democrática do Congo | 2-0 | 1-1 | 0 | 8 |
+| Inglaterra x Croácia | 2-1 | 4-2 | 3 | 9 |
+| Gana x Panamá | 2-1 | 1-0 | 5 | 8 |
+| Uzbequistão x Colômbia | 0-2 | 1-3 | 5 | 8 |
+| República Tcheca x África do Sul | 2-1 | 1-1 | 0 | 8 |
+| Suíça x Bósnia e Herzegovina | 2-0 | 4-1 | 3 | 9 |
+| Canadá x Catar | 2-0 | 6-0 | 4 | 9 |
+| México x Coreia do Sul | 2-1 | 1-0 | 5 | 8 |
+| Estados Unidos x Austrália | 2-1 | 2-0 | 6 | 8 |
+| Escócia x Marrocos | 0-2 | 0-1 | 4 | 8 |
+| Brasil x Haiti | 4-0 | 3-0 | 4 | 8 |
+| Turquia x Paraguai | 2-1 | 0-1 | 0 | 8 |
+| Holanda x Suécia | 2-1 | 5-1 | 4 | 9 |
+| Alemanha x Costa do Marfim | 2-0 | 2-1 | 6 | 8 |
+| Equador x Curaçao | 2-0 | 0-0 | 0 | 8 |
+| Tunísia x Japão | 0-2 | 0-4 | 4 | 9 |
+| Espanha x Arábia Saudita | 4-0 | 4-0 | 9 | 9 |
+| Bélgica x Irã | 2-0 | 0-0 | 0 | 8 |
+| Uruguai x Cabo Verde | 2-0 | 2-2 | 0 | 8 |
+| Nova Zelândia x Egito | 0-2 | 1-3 | 5 | 8 |
+| Argentina x Áustria | 2-0 | 2-0 | 8 | 8 |
+| França x Iraque | 4-0 | 3-0 | 4 | 8 |
+| Noruega x Senegal | 2-1 | 3-2 | 5 | 8 |
+| Jordânia x Argélia | 0-2 | 1-2 | 6 | 8 |
+| Portugal x Uzbequistão | 2-0 | 5-0 | 4 | 9 |
+| Inglaterra x Gana | 2-0 | 0-0 | 0 | 8 |
+| Panamá x Croácia | 0-2 | 0-1 | 4 | 8 |
+| Colômbia x República Democrática do Congo | 2-0 | 1-0 | 4 | 8 |
+| Bósnia e Herzegovina x Catar | 2-0 | 3-1 | 5 | 8 |
+| Suíça x Canadá | 2-1 | 2-1 | 8 | 8 |
+| Marrocos x Haiti | 2-0 | 4-2 | 5 | 9 |
+| Escócia x Brasil | 0-2 | 0-3 | 4 | 8 |
+| República Tcheca x México | 1-2 | 0-3 | 3 | 8 |
+| África do Sul x Coreia do Sul | 0-2 | 1-0 | 0 | 8 |
+| Curaçao x Costa do Marfim | 0-2 | 0-2 | 8 | 8 |
+| Equador x Alemanha | 1-2 | 2-1 | 0 | 8 |
+| Japão x Suécia | 2-1 | 1-1 | 0 | 8 |
+| Tunísia x Holanda | 0-4 | 1-3 | 3 | 8 |
+| Paraguai x Austrália | 0-0 | 0-0 | 8 | 8 |
+| Turquia x Estados Unidos | 1-2 | 3-2 | 0 | 8 |
+| Noruega x França | 0-2 | 1-4 | 3 | 9 |
+| Senegal x Iraque | 2-0 | 5-0 | 4 | 9 |
+| Cabo Verde x Arábia Saudita | 2-1 | 0-0 | 0 | 8 |
+| Uruguai x Espanha | 0-2 | 0-1 | 4 | 8 |
+| Egito x Irã | 0-0 | 1-1 | 5 | 8 |
+| Nova Zelândia x Bélgica | 0-4 | 1-5 | 6 | 9 |
+| Croácia x Gana | 2-0 | 2-1 | 6 | 8 |
+| Panamá x Inglaterra | 0-4 | 0-2 | 4 | 8 |
+| Colômbia x Portugal | 1-2 | 0-0 | 0 | 8 |
+| República Democrática do Congo x Uzbequistão | 2-1 | 3-1 | 4 | 8 |
+| Argélia x Áustria | 0-0 | 3-3 | 5 | 8 |
+| Jordânia x Argentina | 0-2 | 1-3 | 5 | 8 |
+| África do Sul x Canadá | 0-2 | 0-1 | 8 | 16 |
+| Brasil x Japão | 2-1 | 2-1 | 16 | 16 |
+| Alemanha x Paraguai | 2-0 | 1-1 · pên. 3-4 (Paraguai) | 6 | 28 |
+| Holanda x Marrocos | 2-1 | 1-1 · pên. 2-3 (Marrocos) | 6 | 28 |
+| Costa do Marfim x Noruega | 1-2 | 1-2 | 16 | 16 |
+| França x Suécia | 2-0 | 3-0 | 8 | 16 |
+| México x Equador | 1-0 | 2-0 | 8 | 16 |
+| Inglaterra x República Democrática do Congo | 2-0 | 2-1 | 12 | 16 |
+| Bélgica x Senegal | 2-1 | 2-2 · pror. 3-2 (Bélgica) | 0 | 22 |
+| Estados Unidos x Bósnia e Herzegovina | 2-0 | 2-0 | 16 | 16 |
+| Espanha x Áustria | 2-0 | 3-0 | 8 | 16 |
+| Portugal x Croácia | 2-1 | 2-1 | 16 | 16 |
+| Suíça x Argélia | 2-1 | 2-0 | 12 | 16 |
+| Austrália x Egito | 1-2 | 1-1 · pên. 2-4 (Egito) | 12 | 28 |
+| Argentina x Cabo Verde | 2-0 | 1-1 · pror. 3-2 (Argentina) | 0 | 22 |
+| Colômbia x Gana | 2-0 | 1-0 | 8 | 16 |
+| Canadá x Marrocos | 0-2 | 0-3 | 8 | 16 |
+| Paraguai x França | 0-2 | 0-1 | 8 | 16 |
+| Brasil x Noruega | 2-1 | 1-2 | 0 | 16 |
+| México x Inglaterra | 1-2 | 2-3 | 10 | 16 |
+| Portugal x Espanha | 1-2 | 0-1 | 10 | 16 |
+| Estados Unidos x Bélgica | 2-1 | 1-4 | 0 | 18 |
+| Argentina x Egito | 2-0 | 3-2 | 6 | 16 |
+| Suíça x Colômbia | 1-2 | 0-0 · pên. 4-3 (Suíça) | 6 | 28 |
+| França x Marrocos | 2-0 | 2-0 | 16 | 16 |
+| Espanha x Bélgica | 2-1 | 2-1 | 16 | 16 |
+| Noruega x Inglaterra | 1-2 | 1-1 · pror. 1-2 (Inglaterra) | 0 | 22 |
+| Argentina x Suíça | 2-0 | 1-1 · pror. 3-1 (Argentina) | 0 | 22 |
+| França x Espanha | 1-1 | 0-2 | 0 | 16 |
+| Inglaterra x Argentina | 1-1 | 1-2 | 0 | 16 |
+| França x Inglaterra | 2-1 | 4-6 | 0 | 18 |
+| Espanha x Argentina | 2-1 | 0-0 · pror. 1-0 (Espanha) | 0 | 44 |
+
+</details>
+
+
 ## Setup
 
 ```bash
